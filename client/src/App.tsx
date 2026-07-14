@@ -8,6 +8,7 @@ import JobDetail from './components/JobDetail';
 import Users from './components/Users';
 import Settings from './components/Settings';
 import NotificationsPanel from './components/Notifications';
+import { resyncPushSubscription } from './push';
 
 type Tab = 'zadaci' | 'baustele' | 'korisnici' | 'postavke';
 
@@ -35,6 +36,12 @@ export default function App() {
     if (!me) return;
     api.get<User[]>('/users').then(setUsers).catch(() => {});
   }, [me, refreshKey]);
+
+  // ako uređaj već ima push pretplatu, provjeri da je server stvarno ima spremljenu
+  useEffect(() => {
+    if (!me) return;
+    resyncPushSubscription();
+  }, [me]);
 
   // polling obavijesti svakih 20s
   useEffect(() => {

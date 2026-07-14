@@ -17,6 +17,23 @@ export async function getPushSubscription(): Promise<PushSubscription | null> {
   return reg.pushManager.getSubscription();
 }
 
+/**
+ * Ponovno pošalji postojeću pretplatu na server ako je lokalno prisutna.
+ * Sanira slučaj kad je subscribe() na uređaju uspio, ali je spremanje na
+ * server ranije palo (npr. kratki prekid mreže) — bez ovoga app izgleda
+ * "uključeno" iako server nikad nije dobio pretplatu.
+ */
+export async function resyncPushSubscription(): Promise<boolean> {
+  const sub = await getPushSubscription();
+  if (!sub) return false;
+  try {
+    await api.post('/push/subscribe', { subscription: sub.toJSON() });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function enablePush(): Promise<void> {
   if (!pushSupported()) throw new Error('Push obavijesti nisu podržane na ovom uređaju/pregledniku.');
 

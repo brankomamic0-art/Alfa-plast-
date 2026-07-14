@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { User, ROLE_LABEL } from '../types';
 import { ErrorBox } from './ui';
-import { pushSupported, getPushSubscription, enablePush, disablePush } from '../push';
+import { pushSupported, getPushSubscription, enablePush, disablePush, resyncPushSubscription } from '../push';
 
 export default function Settings({ me, users }: { me: User; users: User[] }) {
   const [muted, setMuted] = useState<Set<number>>(new Set());
@@ -24,7 +24,10 @@ export default function Settings({ me, users }: { me: User; users: User[] }) {
 
   useEffect(() => {
     if (!pushSupported()) return;
-    getPushSubscription().then((sub) => setPushOn(!!sub));
+    getPushSubscription().then((sub) => {
+      setPushOn(!!sub);
+      if (sub) resyncPushSubscription();
+    });
   }, []);
 
   async function togglePush() {
