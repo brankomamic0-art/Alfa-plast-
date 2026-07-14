@@ -49,7 +49,7 @@ Web aplikacija (mobilna + desktop, responsive) za praćenje bauštela, materijal
 ```bash
 cd server
 npm install
-cp ../.env.example .env      # i uredi DATABASE_URL, JWT_SECRET
+cp ../.env.example .env      # i uredi DATABASE_URL, JWT_SECRET (.env se automatski učitava)
 npm run seed                  # kreira Tonija, Josipa, Iku...
 npm run dev                   # API na :3000
 ```

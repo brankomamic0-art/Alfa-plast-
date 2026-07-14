@@ -1,5 +1,6 @@
 // Pokreni jednom nakon postavljanja baze:  npm run seed
 // Kreira početne korisnike (preskače postojeće).
+import 'dotenv/config';
 import bcrypt from 'bcryptjs';
 import { pool, migrate, q, one } from './db.js';
 
