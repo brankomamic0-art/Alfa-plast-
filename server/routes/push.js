@@ -22,6 +22,7 @@ router.post('/push/subscribe', requireAuth, async (req, res) => {
      ON CONFLICT (endpoint) DO UPDATE SET user_id = $1, p256dh = $3, auth = $4`,
     [req.user.id, endpoint, keys.p256dh, keys.auth]
   );
+  console.log(`[push] korisnik ${req.user.id} (${req.user.full_name}) pretplaćen: ${endpoint.slice(0, 60)}...`);
   res.status(201).json({ ok: true });
 });
 

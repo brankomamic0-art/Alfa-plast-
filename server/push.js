@@ -17,8 +17,12 @@ export { publicKey as vapidPublicKey };
 
 /** Pošalji push svim pretplatama danog korisnika; obriši pretplate koje su istekle/nevažeće. */
 export async function sendPush(userId, payload) {
-  if (!pushEnabled) return;
+  if (!pushEnabled) {
+    console.log(`[push] preskočeno za korisnika ${userId} — VAPID nije omogućen`);
+    return;
+  }
   const subs = await q('SELECT * FROM push_subscriptions WHERE user_id = $1', [userId]);
+  console.log(`[push] korisnik ${userId} ima ${subs.length} pretplata/e`);
   if (subs.length === 0) return;
 
   const body = JSON.stringify(payload);
@@ -30,11 +34,11 @@ export async function sendPush(userId, payload) {
       };
       try {
         await webpush.sendNotification(subscription, body);
+        console.log(`[push] poslano na ${sub.endpoint.slice(0, 60)}...`);
       } catch (e) {
+        console.error(`[push] GREŠKA (status ${e.statusCode}) na ${sub.endpoint.slice(0, 60)}...:`, e.body || e.message);
         if (e.statusCode === 404 || e.statusCode === 410) {
           await q('DELETE FROM push_subscriptions WHERE id = $1', [sub.id]);
-        } else {
-          console.error('Push greška:', e.message);
         }
       }
     })
