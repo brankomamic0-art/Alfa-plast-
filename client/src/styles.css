@@ -1,0 +1,251 @@
+/* =====================================================
+   ALFA PLAST — Praćenje poslova
+   Industrijski dizajn: beton, čelik, signalna narančasta
+   ===================================================== */
+:root {
+  --bg: #ECEEE9;
+  --panel: #FFFFFF;
+  --ink: #1A2226;
+  --ink-soft: #5D6A6B;
+  --line: #D8DCD3;
+  --accent: #D85425;
+  --accent-dark: #96350F;
+  --accent-bg: #FBEBE2;
+  --green: #0E6B4F;
+  --green-bg: #E0F3EB;
+  --amber: #8A5307;
+  --amber-bg: #FAEFD9;
+  --blue: #1A5F9E;
+  --blue-bg: #E6F0FA;
+  --purple: #55489C;
+  --purple-bg: #EEECFA;
+  --red: #A62B2B;
+  --red-bg: #FBE9E9;
+  --gray-bg: #F0F1EC;
+  --radius: 12px;
+  --shadow: 0 1px 3px rgba(26, 34, 38, 0.08);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+  -webkit-tap-highlight-color: transparent;
+  font-size: 15px;
+  line-height: 1.45;
+}
+button { font-family: inherit; cursor: pointer; }
+input, select, textarea { font-family: inherit; font-size: 15px; }
+img { max-width: 100%; }
+
+#root { min-height: 100vh; }
+.app { max-width: 680px; margin: 0 auto; min-height: 100vh; padding-bottom: 40px; }
+@media (min-width: 900px) { .app { max-width: 860px; } }
+
+/* ---------- Header ---------- */
+.top {
+  background: var(--ink);
+  color: #fff;
+  padding: 12px 16px;
+  position: sticky; top: 0; z-index: 40;
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+}
+.top .brand { line-height: 1.15; }
+.top .brand b {
+  font-size: 16px; font-weight: 800; letter-spacing: 0.4px; text-transform: uppercase;
+  border-left: 3px solid var(--accent); padding-left: 8px;
+}
+.top .brand small { display: block; font-size: 11px; opacity: 0.65; padding-left: 11px; }
+.top .right { display: flex; align-items: center; gap: 8px; }
+.role-pill {
+  font-size: 11.5px; font-weight: 700; padding: 4px 10px; border-radius: 999px;
+  background: rgba(255,255,255,0.14); white-space: nowrap;
+}
+
+/* Zvono */
+.bell {
+  position: relative; background: rgba(255,255,255,0.1); border: none; color: #fff;
+  width: 38px; height: 38px; border-radius: 10px; font-size: 18px;
+  display: flex; align-items: center; justify-content: center;
+}
+.bell .dot {
+  position: absolute; top: -5px; right: -5px; min-width: 19px; height: 19px;
+  border-radius: 999px; background: var(--accent); color: #fff;
+  font-size: 11px; font-weight: 800; display: flex; align-items: center; justify-content: center;
+  padding: 0 4px; border: 2px solid var(--ink);
+}
+.logout-btn {
+  background: none; border: 1px solid rgba(255,255,255,0.25); color: #fff;
+  padding: 7px 10px; border-radius: 10px; font-size: 12.5px; font-weight: 600;
+}
+
+/* ---------- Tabovi ---------- */
+.tabs {
+  display: flex; background: var(--panel); border-bottom: 1px solid var(--line);
+  position: sticky; top: 62px; z-index: 30; overflow-x: auto;
+}
+.tabs button {
+  flex: 1; min-width: 90px; border: none; background: none; padding: 13px 6px;
+  font-size: 13.5px; font-weight: 700; color: var(--ink-soft);
+  border-bottom: 3px solid transparent; white-space: nowrap;
+}
+.tabs button.active { color: var(--accent-dark); border-bottom-color: var(--accent); }
+
+main { padding: 14px; }
+
+/* ---------- Kartice ---------- */
+.card {
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 14px; margin-bottom: 12px; box-shadow: var(--shadow);
+}
+.card.clickable:active { transform: scale(0.995); }
+.card h3 { margin: 0 0 3px; font-size: 16.5px; }
+.muted { color: var(--ink-soft); font-size: 13px; }
+.row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.spread { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+
+/* ---------- Bedževi ---------- */
+.badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11.5px; font-weight: 800; padding: 4px 10px; border-radius: 999px;
+  white-space: nowrap; text-transform: uppercase; letter-spacing: 0.3px;
+}
+.b-gray   { background: var(--gray-bg);   color: var(--ink-soft); }
+.b-orange { background: var(--accent-bg); color: var(--accent-dark); }
+.b-green  { background: var(--green-bg);  color: var(--green); }
+.b-amber  { background: var(--amber-bg);  color: var(--amber); }
+.b-blue   { background: var(--blue-bg);   color: var(--blue); }
+.b-purple { background: var(--purple-bg); color: var(--purple); }
+.b-red    { background: var(--red-bg);    color: var(--red); }
+
+.chip {
+  font-size: 12px; font-weight: 700; padding: 3px 9px; border-radius: 7px;
+  background: var(--gray-bg); color: var(--ink-soft);
+}
+
+/* ---------- Lanac statusa (potpis dizajna) ---------- */
+.chain { display: flex; gap: 4px; margin-top: 8px; }
+.chain span {
+  flex: 1; height: 5px; border-radius: 3px; background: var(--line);
+}
+.chain span.done { background: var(--accent); }
+.chain span.final { background: var(--green); }
+
+/* ---------- Gumbi ---------- */
+.btn {
+  border: none; border-radius: 10px; padding: 11px 16px;
+  font-size: 14px; font-weight: 700; background: var(--gray-bg); color: var(--ink);
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+}
+.btn:disabled { opacity: 0.5; cursor: default; }
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary:active { background: var(--accent-dark); }
+.btn-dark { background: var(--ink); color: #fff; }
+.btn-green { background: var(--green); color: #fff; }
+.btn-ghost { background: none; border: 1.5px solid var(--line); }
+.btn-danger { background: var(--red-bg); color: var(--red); }
+.btn-sm { padding: 7px 11px; font-size: 12.5px; border-radius: 8px; }
+.btn-block { width: 100%; }
+.btn-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+
+/* ---------- Forme ---------- */
+.field { margin-bottom: 12px; }
+.field label { display: block; font-size: 12.5px; font-weight: 700; color: var(--ink-soft); margin-bottom: 5px; }
+.field input, .field select, .field textarea {
+  width: 100%; padding: 11px 12px; border: 1.5px solid var(--line); border-radius: 10px;
+  background: #fff; color: var(--ink); outline: none;
+}
+.field input:focus, .field select:focus, .field textarea:focus { border-color: var(--accent); }
+.field textarea { min-height: 76px; resize: vertical; }
+.checkline { display: flex; align-items: center; gap: 10px; padding: 10px 4px; font-weight: 600; }
+.checkline input { width: 20px; height: 20px; accent-color: var(--accent); }
+
+.error-box {
+  background: var(--red-bg); color: var(--red); border-radius: 10px;
+  padding: 10px 12px; font-size: 13.5px; font-weight: 600; margin-bottom: 12px;
+}
+
+/* ---------- Login ---------- */
+.login-wrap {
+  min-height: 100vh; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; padding: 24px;
+  background:
+    linear-gradient(160deg, rgba(26,34,38,0.97) 0%, rgba(26,34,38,0.92) 100%),
+    repeating-linear-gradient(45deg, #222d32 0 12px, #1a2226 12px 24px);
+}
+.login-card {
+  background: var(--panel); border-radius: 16px; padding: 28px 24px;
+  width: 100%; max-width: 380px; box-shadow: 0 12px 40px rgba(0,0,0,0.35);
+}
+.login-logo {
+  font-size: 21px; font-weight: 900; letter-spacing: 1px; text-transform: uppercase;
+  border-left: 4px solid var(--accent); padding-left: 10px; margin-bottom: 2px;
+}
+.login-sub { color: var(--ink-soft); font-size: 13px; margin-bottom: 22px; padding-left: 14px; }
+
+/* ---------- Modal ---------- */
+.modal-back {
+  position: fixed; inset: 0; background: rgba(20,26,29,0.55); z-index: 60;
+  display: flex; align-items: flex-end; justify-content: center;
+}
+@media (min-width: 640px) { .modal-back { align-items: center; } }
+.modal {
+  background: var(--panel); width: 100%; max-width: 560px;
+  border-radius: 18px 18px 0 0; padding: 18px 16px 26px;
+  max-height: 88vh; overflow-y: auto;
+}
+@media (min-width: 640px) { .modal { border-radius: 18px; padding: 22px 22px 24px; } }
+.modal h2 { margin: 0 0 14px; font-size: 18px; }
+.modal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.close-x { background: var(--gray-bg); border: none; width: 34px; height: 34px; border-radius: 999px; font-size: 16px; font-weight: 700; }
+
+/* ---------- Feed događaja ---------- */
+.event {
+  border-left: 3px solid var(--line); padding: 8px 0 8px 12px; margin-left: 4px;
+}
+.event.k-problem { border-left-color: var(--red); }
+.event.k-transport { border-left-color: var(--blue); }
+.event.k-status { border-left-color: var(--accent); }
+.event.k-napomena { border-left-color: var(--purple); }
+.event.k-napredak { border-left-color: var(--green); }
+.event .who { font-size: 12.5px; font-weight: 700; }
+.event .when { font-size: 11.5px; color: var(--ink-soft); }
+.event .body { margin-top: 3px; font-size: 14px; white-space: pre-wrap; }
+.event img { margin-top: 8px; border-radius: 10px; max-height: 260px; }
+
+/* ---------- Obavijesti ---------- */
+.notif { display: flex; gap: 10px; padding: 12px 4px; border-bottom: 1px solid var(--line); }
+.notif:last-child { border-bottom: none; }
+.notif .nd { width: 9px; height: 9px; border-radius: 999px; margin-top: 6px; flex-shrink: 0; background: var(--line); }
+.notif.unread .nd { background: var(--accent); }
+.notif b { font-size: 14px; }
+.notif p { margin: 2px 0 0; font-size: 13px; color: var(--ink-soft); }
+
+/* ---------- Sekcije ---------- */
+.section-title {
+  font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.8px;
+  color: var(--ink-soft); margin: 20px 0 10px; display: flex; align-items: center; gap: 8px;
+}
+.section-title::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+
+.empty {
+  text-align: center; color: var(--ink-soft); padding: 36px 16px; font-size: 14px;
+  border: 1.5px dashed var(--line); border-radius: var(--radius); margin-bottom: 12px;
+}
+
+.fab-space { height: 76px; }
+.item-block { border-top: 1px solid var(--line); padding-top: 12px; margin-top: 12px; }
+.photo-preview { border-radius: 10px; max-height: 180px; margin-top: 8px; }
+
+.switch-line {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 4px; border-bottom: 1px solid var(--line);
+}
+.switch-line:last-child { border-bottom: none; }
+.switch-line .nm { font-weight: 700; }
+.switch-line .rl { font-size: 12px; color: var(--ink-soft); }
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}
