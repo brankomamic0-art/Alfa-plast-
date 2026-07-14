@@ -9,6 +9,7 @@ import usersRouter from './routes/users.js';
 import tasksRouter from './routes/tasks.js';
 import jobsRouter from './routes/jobs.js';
 import notificationsRouter from './routes/notifications.js';
+import pushRouter from './routes/push.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -20,6 +21,7 @@ app.use('/api', usersRouter);
 app.use('/api', tasksRouter);
 app.use('/api', jobsRouter);
 app.use('/api', notificationsRouter);
+app.use('/api', pushRouter);
 
 // Fotografije
 const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads');

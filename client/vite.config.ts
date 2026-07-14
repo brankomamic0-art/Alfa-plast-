@@ -7,6 +7,12 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.ts',
+      injectManifest: {
+        globPatterns: ['**/*.{js,css,html,png,svg,webmanifest}'],
+      },
       includeAssets: ['favicon.png', 'apple-touch-icon.png'],
       manifest: {
         name: 'Alfa Plast — Praćenje poslova',
@@ -22,20 +28,6 @@ export default defineConfig({
           { src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png' },
           { src: '/pwa-512x512.png', sizes: '512x512', type: 'image/png' },
           { src: '/pwa-maskable-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
-        ],
-      },
-      workbox: {
-        navigateFallbackDenylist: [/^\/api\//, /^\/uploads\//],
-        runtimeCaching: [
-          {
-            urlPattern: /^\/api\/.*/,
-            handler: 'NetworkOnly',
-          },
-          {
-            urlPattern: /^\/uploads\/.*/,
-            handler: 'StaleWhileRevalidate',
-            options: { cacheName: 'uploads-cache' },
-          },
         ],
       },
     }),

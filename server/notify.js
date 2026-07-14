@@ -1,4 +1,5 @@
 import { q } from './db.js';
+import { sendPush } from './push.js';
 
 /**
  * Kreira obavijesti za listu primatelja, poštujući utišavanja.
@@ -30,6 +31,12 @@ export async function notify({ recipients, actorId = null, type, title, body = '
   await q(
     `INSERT INTO notifications (user_id, actor_id, type, title, body, ref_type, ref_id) VALUES ${values.join(',')}`,
     params
+  );
+
+  await Promise.all(
+    allowed.map((uid) =>
+      sendPush(uid, { title, body, refType, refId }).catch((e) => console.error('Push greška:', e.message))
+    )
   );
 }
 

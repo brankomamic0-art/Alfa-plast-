@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { User, ROLE_LABEL } from '../types';
 import { ErrorBox } from './ui';
+import { pushSupported, getPushSubscription, enablePush, disablePush } from '../push';
 
 export default function Settings({ me, users }: { me: User; users: User[] }) {
   const [muted, setMuted] = useState<Set<number>>(new Set());
@@ -10,6 +11,9 @@ export default function Settings({ me, users }: { me: User; users: User[] }) {
   const [newPw, setNewPw] = useState('');
   const [pwMsg, setPwMsg] = useState('');
   const [pwErr, setPwErr] = useState('');
+  const [pushOn, setPushOn] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
+  const [pushErr, setPushErr] = useState('');
 
   useEffect(() => {
     api.get<number[]>('/mutes').then((ids) => {
@@ -17,6 +21,29 @@ export default function Settings({ me, users }: { me: User; users: User[] }) {
       setLoaded(true);
     });
   }, []);
+
+  useEffect(() => {
+    if (!pushSupported()) return;
+    getPushSubscription().then((sub) => setPushOn(!!sub));
+  }, []);
+
+  async function togglePush() {
+    setPushBusy(true);
+    setPushErr('');
+    try {
+      if (pushOn) {
+        await disablePush();
+        setPushOn(false);
+      } else {
+        await enablePush();
+        setPushOn(true);
+      }
+    } catch (e: any) {
+      setPushErr(e.message);
+    } finally {
+      setPushBusy(false);
+    }
+  }
 
   async function toggleMute(userId: number) {
     const next = new Set(muted);
@@ -48,6 +75,25 @@ export default function Settings({ me, users }: { me: User; users: User[] }) {
 
   return (
     <div>
+      <div className="section-title">Push obavijesti</div>
+      <div className="card">
+        <p className="muted" style={{ marginTop: 0 }}>
+          Uključite da primate obavijesti na ovaj uređaj čak i kad je aplikacija zatvorena.
+        </p>
+        <ErrorBox msg={pushErr} />
+        {!pushSupported() ? (
+          <div className="muted">Ovaj preglednik/uređaj ne podržava push obavijesti.</div>
+        ) : (
+          <button
+            className={`btn btn-block ${pushOn ? 'btn-green' : 'btn-dark'}`}
+            onClick={togglePush}
+            disabled={pushBusy}
+          >
+            {pushBusy ? 'Trenutak…' : pushOn ? '🔔 Obavijesti uključene' : 'Uključi obavijesti na ovom uređaju'}
+          </button>
+        )}
+      </div>
+
       <div className="section-title">Obavijesti po korisniku</div>
       <div className="card">
         <p className="muted" style={{ marginTop: 0 }}>

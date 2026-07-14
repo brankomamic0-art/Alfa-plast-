@@ -75,9 +75,26 @@ Početni korisnici (odmah promijeniti lozinke!):
 3. Postavi `JWT_SECRET` na dugi nasumični string
 4. **Volume**: dodaj Railway Volume montiran na `/data` (tu se spremaju fotografije — bez volumena nestaju pri svakom deployu!)
 5. Jednokratno pokreni seed: `railway run npm run seed` (iz `server/` direktorija) ili privremeno dodaj `node seed.js &&` ispred CMD-a
+6. Generiraj VAPID ključeve za push obavijesti i postavi ih kao env varijable (vidi ispod)
+
+## Push obavijesti (rade i kad je aplikacija zatvorena)
+
+Aplikacija koristi Web Push (PWA service worker + VAPID), ne treniranje na Firebase/APNs — radi u Chromeu/Edgeu na Androidu odmah, a na iOS-u tek nakon što korisnik doda app na Home Screen (Safari ograničenje, ne naše).
+
+1. Generiraj ključeve jednom:
+```bash
+npx web-push generate-vapid-keys
+```
+2. Postavi u env (Railway varijable ili `server/.env`):
+```
+VAPID_PUBLIC_KEY=...
+VAPID_PRIVATE_KEY=...
+VAPID_SUBJECT=mailto:tvoj@email.hr
+```
+3. Korisnik uključuje obavijesti u **Postavke → Push obavijesti** (traži dozvolu preglednika, radi po uređaju/pregledniku — treba uključiti na svakom uređaju posebno)
+4. Bez postavljenih ključeva aplikacija radi normalno, samo se push tiho preskače (server ispiše upozorenje u log)
 
 ## Napomene za širenje
 
 - Kategorije bauštela već postoje u shemi (`staklene_ograde`, `pvc_stolarija`, `alu_stolarija`) — PVC i ALU se kasnije dodaju bez promjene baze
 - Lokacije skladišta su trenutno fiksne u kodu (`server/routes/jobs.js` + `client/src/types.ts`) — po potrebi prebaciti u tablicu
-- Push notifikacije na mobitel (web push / PWA) su logičan sljedeći korak; sad se obavijesti dohvaćaju svakih 20 s dok je aplikacija otvorena
