@@ -24,6 +24,7 @@ export default function JobDetail({ jobId, me, onBack, onChanged }: {
   const [error, setError] = useState('');
   const [transportItem, setTransportItem] = useState<JobItem | null>(null);
   const [siteItem, setSiteItem] = useState<JobItem | null>(null);
+  const [statusItem, setStatusItem] = useState<JobItem | null>(null);
   const [eventKind, setEventKind] = useState<string | null>(null);
   const isAdmin = me.role === 'admin';
   const canMount = me.role !== 'vozac'; // majstor + admin
@@ -47,13 +48,6 @@ export default function JobDetail({ jobId, me, onBack, onChanged }: {
     } catch (e: any) { setError(e.message); }
   }
 
-  async function setItemStatus(item: JobItem, status: ItemStatus) {
-    try {
-      await api.put(`/jobs/${jobId}/items/${item.id}/status`, { status });
-      load();
-      onChanged();
-    } catch (e: any) { setError(e.message); }
-  }
 
   async function archive(arch: boolean) {
     await api.put(`/jobs/${jobId}`, { archived: arch });
@@ -124,15 +118,7 @@ export default function JobDetail({ jobId, me, onBack, onChanged }: {
             <ItemChain status={item.status} location={item.location} site={item.site_status} />
             <div className="btn-row">
               {isAdmin && (
-                <select
-                  value={item.status}
-                  onChange={(e) => setItemStatus(item, e.target.value as ItemStatus)}
-                  style={{ padding: '8px 10px', borderRadius: 8, border: '1.5px solid var(--line)', fontWeight: 700, fontSize: 13 }}
-                >
-                  {(Object.keys(ITEM_STATUS_LABEL) as ItemStatus[]).map((s) => (
-                    <option key={s} value={s}>{ITEM_STATUS_LABEL[s]}</option>
-                  ))}
-                </select>
+                <button className="btn btn-sm" onClick={() => setStatusItem(item)}>🔄 Status priprave</button>
               )}
               <button className="btn btn-sm" onClick={() => setTransportItem(item)}>🚚 Transport</button>
               {canMount && (
@@ -189,6 +175,14 @@ export default function JobDetail({ jobId, me, onBack, onChanged }: {
         ))}
       </div>
 
+      {statusItem && (
+        <ItemStatusModal
+          jobId={jobId}
+          item={statusItem}
+          onClose={() => setStatusItem(null)}
+          onDone={() => { setStatusItem(null); load(); onChanged(); }}
+        />
+      )}
       {transportItem && (
         <TransportModal
           jobId={jobId}
@@ -214,6 +208,56 @@ export default function JobDetail({ jobId, me, onBack, onChanged }: {
         />
       )}
     </div>
+  );
+}
+
+// ---------- Status priprave stavke (naručeno / u izradi / spremno za montažu) + komentar ----------
+function ItemStatusModal({ jobId, item, onClose, onDone }: {
+  jobId: number; item: JobItem; onClose: () => void; onDone: () => void;
+}) {
+  const [status, setStatus] = useState<ItemStatus>(item.status);
+  const [comment, setComment] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function submit() {
+    setBusy(true);
+    try {
+      await api.put(`/jobs/${jobId}/items/${item.id}/status`, { status, comment });
+      onDone();
+    } catch (e: any) {
+      setError(e.message);
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal title={`Status priprave — ${ITEM_LABEL[item.type]}`} onClose={onClose}>
+      <ErrorBox msg={error} />
+      <div className="field">
+        <label>Status</label>
+        <div className="btn-row" style={{ marginTop: 4 }}>
+          {(Object.keys(ITEM_STATUS_LABEL) as ItemStatus[]).map((s) => (
+            <button
+              key={s}
+              className={`btn btn-sm ${status === s ? 'btn-primary' : 'btn-ghost'}`}
+              onClick={() => setStatus(s)}
+            >{ITEM_STATUS_LABEL[s]}</button>
+          ))}
+        </div>
+      </div>
+      <div className="field">
+        <label>Komentar (opcionalno)</label>
+        <textarea
+          placeholder="npr. staklo dolazi 27.7.2026, materijali poslani na farbanje…"
+          value={comment}
+          onChange={(e) => setComment(e.target.value)}
+        />
+      </div>
+      <button className="btn btn-primary btn-block" onClick={submit} disabled={busy}>
+        {busy ? 'Spremanje…' : 'Spremi status'}
+      </button>
+    </Modal>
   );
 }
 
