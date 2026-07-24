@@ -319,7 +319,6 @@ function TransportModal({ jobId, item, onClose, onDone }: {
           ref={fileRef}
           type="file"
           accept="image/*"
-          capture="environment"
           onChange={(e) => pickPhoto(e.target.files?.[0] || null)}
         />
         {preview && <img className="photo-preview" src={preview} alt="Pregled" />}
@@ -432,7 +431,7 @@ function EventModal({ jobId, kind, onClose, onDone }: {
       </div>
       <div className="field">
         <label>Fotografija (opcionalno)</label>
-        <input type="file" accept="image/*" capture="environment" onChange={(e) => pickPhoto(e.target.files?.[0] || null)} />
+        <input type="file" accept="image/*" onChange={(e) => pickPhoto(e.target.files?.[0] || null)} />
         {preview && <img className="photo-preview" src={preview} alt="Pregled" />}
       </div>
       <button className={`btn btn-block ${kind === 'problem' ? 'btn-danger' : 'btn-primary'}`} onClick={submit} disabled={busy}>
