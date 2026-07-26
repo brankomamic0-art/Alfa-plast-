@@ -55,6 +55,13 @@ export default function JobDetail({ jobId, me, onBack, onChanged }: {
     onBack();
   }
 
+  async function remove() {
+    if (!confirm(`Trajno obrisati bauštelu "${job?.name}"? Ova radnja se ne može poništiti.`)) return;
+    await api.del(`/jobs/${jobId}`);
+    onChanged();
+    onBack();
+  }
+
   if (error && !job) {
     return (
       <div>
@@ -97,6 +104,7 @@ export default function JobDetail({ jobId, me, onBack, onChanged }: {
             <button className="btn btn-ghost btn-sm" onClick={() => archive(!job.archived)}>
               {job.archived ? 'Vrati iz arhive' : 'Arhiviraj'}
             </button>
+            <button className="btn btn-danger btn-sm" onClick={remove}>Obriši</button>
           </div>
         )}
       </div>
