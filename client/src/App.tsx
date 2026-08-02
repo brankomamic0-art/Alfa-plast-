@@ -1,22 +1,24 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, getStoredUser, getToken, clearSession } from './api';
-import { User, Notification, ROLE_LABEL } from './types';
+import { User, Notification, Vehicle, ROLE_LABEL } from './types';
 import Login from './components/Login';
 import Tasks from './components/Tasks';
 import Jobs from './components/Jobs';
 import JobDetail from './components/JobDetail';
 import Users from './components/Users';
+import Vehicles from './components/Vehicles';
 import Settings from './components/Settings';
 import NotificationsPanel from './components/Notifications';
 import { resyncPushSubscription } from './push';
 
-type Tab = 'zadaci' | 'baustele' | 'korisnici' | 'postavke';
+type Tab = 'zadaci' | 'baustele' | 'korisnici' | 'vozila' | 'postavke';
 
 export default function App() {
   const [me, setMe] = useState<User | null>(() => (getToken() ? getStoredUser<User>() : null));
   const [tab, setTab] = useState<Tab>('baustele');
   const [openJobId, setOpenJobId] = useState<number | null>(null);
   const [users, setUsers] = useState<User[]>([]);
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unread, setUnread] = useState(0);
   const [showNotifs, setShowNotifs] = useState(false);
@@ -35,6 +37,12 @@ export default function App() {
   useEffect(() => {
     if (!me) return;
     api.get<User[]>('/users').then(setUsers).catch(() => {});
+  }, [me, refreshKey]);
+
+  // učitaj vozila (za dodjelu uz zadatak vozačima, i prikaz dostupnosti)
+  useEffect(() => {
+    if (!me) return;
+    api.get<Vehicle[]>('/vehicles').then(setVehicles).catch(() => {});
   }, [me, refreshKey]);
 
   // ako uređaj već ima push pretplatu, provjeri da je server stvarno ima spremljenu
@@ -86,10 +94,12 @@ export default function App() {
   if (!me) return <Login onLogin={(u) => { setMe(u); setTab(u.role === 'admin' ? 'zadaci' : 'baustele'); }} />;
 
   const isAdmin = me.role === 'admin';
+  const isDriver = me.role === 'vozac';
   const tabs: { key: Tab; label: string }[] = [
     { key: 'zadaci', label: 'Zadaci' },
     { key: 'baustele', label: 'Bauštele' },
     ...(isAdmin ? [{ key: 'korisnici' as Tab, label: 'Korisnici' }] : []),
+    ...(isAdmin || isDriver ? [{ key: 'vozila' as Tab, label: 'Vozila' }] : []),
     { key: 'postavke', label: 'Postavke' },
   ];
 
@@ -122,13 +132,14 @@ export default function App() {
       </nav>
 
       <main>
-        {tab === 'zadaci' && <Tasks me={me} users={users} refreshKey={refreshKey} />}
+        {tab === 'zadaci' && <Tasks me={me} users={users} vehicles={vehicles} refreshKey={refreshKey} />}
         {tab === 'baustele' && (
           openJobId
             ? <JobDetail jobId={openJobId} me={me} onBack={() => { setOpenJobId(null); bump(); }} onChanged={bump} />
             : <Jobs me={me} refreshKey={refreshKey} onOpenJob={setOpenJobId} />
         )}
         {tab === 'korisnici' && isAdmin && <Users users={users} onChanged={bump} />}
+        {tab === 'vozila' && (isAdmin || isDriver) && <Vehicles me={me} vehicles={vehicles} onChanged={bump} />}
         {tab === 'postavke' && <Settings me={me} users={users} />}
       </main>
 

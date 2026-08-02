@@ -13,6 +13,18 @@ CREATE TABLE IF NOT EXISTS users (
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- ============ VOZILA ============
+CREATE TABLE IF NOT EXISTS vehicles (
+  id           SERIAL PRIMARY KEY,
+  registration TEXT NOT NULL UNIQUE,        -- tablica (npr. T12-A-345)
+  name         TEXT DEFAULT '',             -- opcionalno: model/oznaka
+  status       TEXT NOT NULL DEFAULT 'ispravno' CHECK (status IN ('ispravno','u_kvaru')),
+  note         TEXT DEFAULT '',             -- npr. opis kvara
+  active       BOOLEAN NOT NULL DEFAULT TRUE, -- "obrisano" bez gubitka povijesti u zadacima
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- ============ TO-DO LISTA ============
 -- Statusi: poslano (admin kreirao) -> primljeno (korisnik preuzeo) -> zavrseno
 CREATE TABLE IF NOT EXISTS tasks (
@@ -25,11 +37,13 @@ CREATE TABLE IF NOT EXISTS tasks (
                 CHECK (status IN ('poslano','primljeno','zavrseno')),
   due_date      DATE,
   job_id        INTEGER,                -- opcionalna veza na bauštelu
+  vehicle_id    INTEGER REFERENCES vehicles(id) ON DELETE SET NULL, -- opcionalno: vozilo dodijeljeno uz zadatak (vozači)
   auto_reminder BOOLEAN NOT NULL DEFAULT FALSE, -- true = automatski podsjetnik iz bauštele
   last_reminded TIMESTAMPTZ,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS vehicle_id INTEGER REFERENCES vehicles(id) ON DELETE SET NULL;
 
 CREATE TABLE IF NOT EXISTS task_comments (
   id         SERIAL PRIMARY KEY,

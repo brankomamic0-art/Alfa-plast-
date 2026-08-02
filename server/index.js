@@ -11,6 +11,7 @@ import tasksRouter from './routes/tasks.js';
 import jobsRouter from './routes/jobs.js';
 import notificationsRouter from './routes/notifications.js';
 import pushRouter from './routes/push.js';
+import vehiclesRouter from './routes/vehicles.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -23,6 +24,7 @@ app.use('/api', tasksRouter);
 app.use('/api', jobsRouter);
 app.use('/api', notificationsRouter);
 app.use('/api', pushRouter);
+app.use('/api', vehiclesRouter);
 
 // Fotografije
 const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads');

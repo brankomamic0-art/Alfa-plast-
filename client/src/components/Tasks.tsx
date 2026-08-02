@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
-import { Task, TaskComment, User, TASK_STATUS_LABEL, fmtDate, fmtDateTime } from '../types';
+import { Task, TaskComment, User, Vehicle, TASK_STATUS_LABEL, VEHICLE_STATUS_LABEL, fmtDate, fmtDateTime } from '../types';
 import { Modal, ErrorBox, TaskBadge } from './ui';
 
-export default function Tasks({ me, users, refreshKey }: { me: User; users: User[]; refreshKey: number }) {
+export default function Tasks({ me, users, vehicles, refreshKey }: { me: User; users: User[]; vehicles: Vehicle[]; refreshKey: number }) {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [showCreate, setShowCreate] = useState(false);
   const [openTask, setOpenTask] = useState<Task | null>(null);
@@ -43,6 +43,7 @@ export default function Tasks({ me, users, refreshKey }: { me: User; users: User
       {showCreate && (
         <CreateTaskModal
           users={users}
+          vehicles={vehicles}
           onClose={() => setShowCreate(false)}
           onCreated={() => { setShowCreate(false); load(); }}
         />
@@ -69,6 +70,7 @@ function TaskCard({ task, isAdmin, onOpen }: { task: Task; isAdmin: boolean; onO
             {isAdmin ? <>Za: <b>{task.assigned_name}</b> · </> : null}
             Od: {task.creator_name}
             {task.due_date ? <> · Rok: {fmtDate(task.due_date)}</> : null}
+            {task.vehicle_registration ? <> · 🚗 {task.vehicle_registration}</> : null}
             {task.comment_count ? <> · 💬 {task.comment_count}</> : null}
           </div>
         </div>
@@ -78,14 +80,20 @@ function TaskCard({ task, isAdmin, onOpen }: { task: Task; isAdmin: boolean; onO
   );
 }
 
-function CreateTaskModal({ users, onClose, onCreated }: { users: User[]; onClose: () => void; onCreated: () => void }) {
+function CreateTaskModal({ users, vehicles, onClose, onCreated }: {
+  users: User[]; vehicles: Vehicle[]; onClose: () => void; onCreated: () => void;
+}) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [assignedTo, setAssignedTo] = useState<number>(0);
+  const [vehicleId, setVehicleId] = useState<number>(0);
   const [dueDate, setDueDate] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const activeUsers = users.filter((u) => u.active !== false);
+  const assignee = users.find((u) => u.id === assignedTo);
+  const showVehiclePicker = assignee?.role === 'vozac';
+  const availableVehicles = vehicles.filter((v) => v.active !== false);
 
   async function submit() {
     if (!title.trim() || !assignedTo) {
@@ -94,7 +102,10 @@ function CreateTaskModal({ users, onClose, onCreated }: { users: User[]; onClose
     }
     setBusy(true);
     try {
-      await api.post('/tasks', { title, description, assigned_to: assignedTo, due_date: dueDate || null });
+      await api.post('/tasks', {
+        title, description, assigned_to: assignedTo, due_date: dueDate || null,
+        vehicle_id: showVehiclePicker && vehicleId ? vehicleId : null,
+      });
       onCreated();
     } catch (e: any) {
       setError(e.message);
@@ -122,6 +133,19 @@ function CreateTaskModal({ users, onClose, onCreated }: { users: User[]; onClose
           ))}
         </select>
       </div>
+      {showVehiclePicker && (
+        <div className="field">
+          <label>Vozilo (opcionalno)</label>
+          <select value={vehicleId} onChange={(e) => setVehicleId(Number(e.target.value))}>
+            <option value={0}>— bez vozila —</option>
+            {availableVehicles.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.registration}{v.name ? ` — ${v.name}` : ''} ({VEHICLE_STATUS_LABEL[v.status]})
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
       <div className="field">
         <label>Rok (opcionalno)</label>
         <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
@@ -179,6 +203,7 @@ function TaskDetailModal({ task, me, onClose, onChanged }: { task: Task; me: Use
       <div className="row" style={{ marginBottom: 10 }}>
         <TaskBadge status={current.status} />
         {current.due_date && <span className="chip">Rok: {fmtDate(current.due_date)}</span>}
+        {current.vehicle_registration && <span className="chip">🚗 {current.vehicle_registration}</span>}
       </div>
       <div className="muted" style={{ marginBottom: 6 }}>
         Za: <b>{current.assigned_name}</b> · Kreirao: {current.creator_name} · {fmtDateTime(current.created_at)}

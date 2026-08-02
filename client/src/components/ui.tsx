@@ -1,7 +1,7 @@
 import { ReactNode } from 'react';
 import {
-  ItemStatus, SiteStatus, ItemLocation, JobStatus, TaskStatus,
-  ITEM_STATUS_LABEL, SITE_LABEL, LOCATION_LABEL, JOB_STATUS_LABEL, TASK_STATUS_LABEL,
+  ItemStatus, SiteStatus, ItemLocation, JobStatus, TaskStatus, VehicleStatus,
+  ITEM_STATUS_LABEL, SITE_LABEL, LOCATION_LABEL, JOB_STATUS_LABEL, TASK_STATUS_LABEL, VEHICLE_STATUS_LABEL,
 } from '../types';
 
 export function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
@@ -38,6 +38,10 @@ export function JobBadge({ status }: { status: JobStatus }) {
 const ITEM_BADGE: Record<ItemStatus, string> = { naruceno: 'b-gray', u_izradi: 'b-amber', spremno_za_montazu: 'b-orange' };
 export function ItemStatusBadge({ status }: { status: ItemStatus }) {
   return <span className={`badge ${ITEM_BADGE[status]}`}>{ITEM_STATUS_LABEL[status]}</span>;
+}
+
+export function VehicleBadge({ status }: { status: VehicleStatus }) {
+  return <span className={`badge ${status === 'ispravno' ? 'b-green' : 'b-red'}`}>{VEHICLE_STATUS_LABEL[status]}</span>;
 }
 
 export function LocationBadge({ location }: { location: ItemLocation | null }) {

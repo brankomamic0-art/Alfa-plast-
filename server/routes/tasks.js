@@ -13,10 +13,12 @@ const STATUS_LABEL = { poslano: 'Poslano', primljeno: 'Primljeno', zavrseno: 'Za
 router.get('/tasks', async (req, res) => {
   const base = `
     SELECT t.*, ua.full_name AS assigned_name, uc.full_name AS creator_name,
+           v.registration AS vehicle_registration,
            (SELECT COUNT(*)::int FROM task_comments c WHERE c.task_id = t.id) AS comment_count
     FROM tasks t
     JOIN users ua ON ua.id = t.assigned_to
-    JOIN users uc ON uc.id = t.created_by`;
+    JOIN users uc ON uc.id = t.created_by
+    LEFT JOIN vehicles v ON v.id = t.vehicle_id`;
   const rows =
     req.user.role === 'admin'
       ? await q(`${base} ORDER BY (t.status = 'zavrseno'), t.created_at DESC`)
@@ -26,12 +28,12 @@ router.get('/tasks', async (req, res) => {
 
 // ---- Kreiranje zadatka (admin) ----
 router.post('/tasks', requireAdmin, async (req, res) => {
-  const { title, description = '', assigned_to, due_date = null, job_id = null } = req.body || {};
+  const { title, description = '', assigned_to, due_date = null, job_id = null, vehicle_id = null } = req.body || {};
   if (!title || !assigned_to) return res.status(400).json({ error: 'Naslov i osoba su obavezni.' });
   const task = await one(
-    `INSERT INTO tasks (title, description, assigned_to, created_by, due_date, job_id)
-     VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
-    [title.trim(), description, assigned_to, req.user.id, due_date || null, job_id]
+    `INSERT INTO tasks (title, description, assigned_to, created_by, due_date, job_id, vehicle_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+    [title.trim(), description, assigned_to, req.user.id, due_date || null, job_id, vehicle_id || null]
   );
   await notify({
     recipients: [assigned_to],

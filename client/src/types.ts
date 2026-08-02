@@ -19,12 +19,31 @@ export interface Task {
   status: TaskStatus;
   due_date: string | null;
   job_id: number | null;
+  vehicle_id: number | null;
   auto_reminder: boolean;
   created_at: string;
   assigned_name?: string;
   creator_name?: string;
   comment_count?: number;
+  vehicle_registration?: string | null;
 }
+
+export type VehicleStatus = 'ispravno' | 'u_kvaru';
+
+export interface Vehicle {
+  id: number;
+  registration: string;
+  name: string;
+  status: VehicleStatus;
+  note: string;
+  active: boolean;
+  updated_at: string;
+}
+
+export const VEHICLE_STATUS_LABEL: Record<VehicleStatus, string> = {
+  ispravno: 'Ispravno',
+  u_kvaru: 'U kvaru',
+};
 
 export interface TaskComment {
   id: number;
