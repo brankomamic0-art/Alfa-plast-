@@ -44,8 +44,11 @@ export default function Vehicles({ me, vehicles, onChanged }: { me: User; vehicl
             {/* Izmjena ulja je vidljiva svim ulogama */}
             <span className="chip">
               🛢 Ulje: {v.last_oil_date ? fmtDate(v.last_oil_date) : 'nema zapisa'}
-              {v.last_oil_odometer ? ` · ${v.last_oil_odometer.toLocaleString('hr-HR')} km` : ''}
+              {v.last_oil_odometer != null ? ` · ${km(v.last_oil_odometer)}` : ''}
             </span>
+            {v.next_oil_odometer != null && (
+              <span className="chip">➜ Iduća izmjena: {km(v.next_oil_odometer)}</span>
+            )}
             {/* Registracija i tehnički su privatni — server ih šalje samo administratoru */}
             {isAdmin && <ExpiryChip label="📄 Registracija" date={v.registration_until} />}
             {isAdmin && <ExpiryChip label="🔧 Tehnički" date={v.inspection_until} />}
@@ -68,6 +71,8 @@ export default function Vehicles({ me, vehicles, onChanged }: { me: User; vehicl
     </div>
   );
 }
+
+const km = (n: number) => `${n.toLocaleString('hr-HR')} km`;
 
 /** 1 kvar · 2-4 kvara · 5+ kvarova */
 function faultWord(n: number): string {
@@ -307,7 +312,8 @@ function ServiceSection({ type, records, isAdmin, privateNote, onAdd, onDelete }
               {i === 0 && records.length > 1 && <> <span className="badge b-green">Zadnje</span></>}
             </div>
             <div className="rl">
-              {r.odometer !== null && <>{r.odometer.toLocaleString('hr-HR')} km · </>}
+              {r.odometer !== null && <>{km(r.odometer)} · </>}
+              {r.next_odometer !== null && <>iduća na {km(r.next_odometer)} · </>}
               {r.valid_until && <>vrijedi do {fmtDate(r.valid_until)} · </>}
               {r.created_by_name}
             </div>
@@ -338,6 +344,7 @@ function ServiceModal({ vehicleId, type, onClose, onDone }: {
   const [doneDate, setDoneDate] = useState(today);
   const [validUntil, setValidUntil] = useState('');
   const [odometer, setOdometer] = useState('');
+  const [nextOdometer, setNextOdometer] = useState('');
   const [note, setNote] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -345,6 +352,10 @@ function ServiceModal({ vehicleId, type, onClose, onDone }: {
 
   async function submit() {
     if (!doneDate) { setError('Datum je obavezan.'); return; }
+    if (isOil && odometer && nextOdometer && Number(nextOdometer) <= Number(odometer)) {
+      setError('Iduća izmjena mora biti na većoj kilometraži od trenutne.');
+      return;
+    }
     setBusy(true);
     setError('');
     try {
@@ -353,6 +364,7 @@ function ServiceModal({ vehicleId, type, onClose, onDone }: {
         done_date: doneDate,
         valid_until: isOil ? null : validUntil || null,
         odometer: odometer === '' ? null : Number(odometer),
+        next_odometer: isOil && nextOdometer !== '' ? Number(nextOdometer) : null,
         note,
       });
       onDone();
@@ -376,7 +388,7 @@ function ServiceModal({ vehicleId, type, onClose, onDone }: {
         </div>
       )}
       <div className="field">
-        <label>Kilometraža (opcionalno)</label>
+        <label>{isOil ? 'Kilometraža kod izmjene (opcionalno)' : 'Kilometraža (opcionalno)'}</label>
         <input
           type="number"
           inputMode="numeric"
@@ -385,6 +397,19 @@ function ServiceModal({ vehicleId, type, onClose, onDone }: {
           placeholder="npr. 184000"
         />
       </div>
+      {isOil && (
+        <div className="field">
+          <label>Iduća izmjena na kilometraži (opcionalno)</label>
+          <input
+            type="number"
+            inputMode="numeric"
+            value={nextOdometer}
+            onChange={(e) => setNextOdometer(e.target.value)}
+            placeholder={odometer ? `npr. ${Number(odometer) + 15000}` : 'npr. 199000'}
+          />
+          <div className="muted" style={{ marginTop: 4 }}>Vide svi — da vozač zna kad je vrijeme za servis.</div>
+        </div>
+      )}
       <div className="field">
         <label>Napomena (opcionalno)</label>
         <textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder={isOil ? 'npr. zamijenjen i filter' : ''} />

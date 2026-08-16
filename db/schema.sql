@@ -49,10 +49,12 @@ CREATE TABLE IF NOT EXISTS vehicle_service_records (
   done_date   DATE NOT NULL,          -- kad je obavljeno
   valid_until DATE,                   -- vrijedi do (registracija / tehnički)
   odometer    INTEGER,                -- stanje km (izmjena ulja)
+  next_odometer INTEGER,              -- na kojoj kilometraži je iduća izmjena ulja
   note        TEXT DEFAULT '',
   created_by  INTEGER NOT NULL REFERENCES users(id),
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE vehicle_service_records ADD COLUMN IF NOT EXISTS next_odometer INTEGER;
 CREATE INDEX IF NOT EXISTS idx_vehicle_service ON vehicle_service_records(vehicle_id, type, done_date DESC);
 
 -- Prijenos zatečenih kvarova (status 'u_kvaru' + napomena) u tablicu kvarova

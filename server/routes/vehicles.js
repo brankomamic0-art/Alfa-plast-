@@ -27,6 +27,14 @@ async function syncStatus(vehicleId) {
   );
 }
 
+/** Kilometraža: null kad nije upisana, false kad nije valjan broj. */
+function toKm(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const km = Number(value);
+  if (!Number.isInteger(km) || km < 0) return false;
+  return km;
+}
+
 /** Datumi registracije/tehničkog vidljivi su samo administratoru. */
 function stripPrivate(vehicle, isAdmin) {
   if (isAdmin) return vehicle;
@@ -40,13 +48,14 @@ router.get('/vehicles', async (req, res) => {
     `SELECT v.*,
             (SELECT count(*)::int FROM vehicle_faults f
               WHERE f.vehicle_id = v.id AND f.resolved = FALSE) AS open_faults,
-            oil.done_date   AS last_oil_date,
-            oil.odometer    AS last_oil_odometer,
+            oil.done_date     AS last_oil_date,
+            oil.odometer      AS last_oil_odometer,
+            oil.next_odometer AS next_oil_odometer,
             reg.valid_until AS registration_until,
             teh.valid_until AS inspection_until
        FROM vehicles v
        LEFT JOIN LATERAL (
-         SELECT r.done_date, r.odometer FROM vehicle_service_records r
+         SELECT r.done_date, r.odometer, r.next_odometer FROM vehicle_service_records r
           WHERE r.vehicle_id = v.id AND r.type = 'ulje'
           ORDER BY r.done_date DESC, r.id DESC LIMIT 1
        ) oil ON TRUE
@@ -227,19 +236,25 @@ router.delete('/vehicles/:id/faults/:faultId', requireAdmin, async (req, res) =>
 // =====================================================
 router.post('/vehicles/:id/service', requireAdmin, async (req, res) => {
   const id = Number(req.params.id);
-  const { type, done_date, valid_until = null, odometer = null, note = '' } = req.body || {};
+  const { type, done_date, valid_until = null, odometer = null, next_odometer = null, note = '' } = req.body || {};
   if (!SERVICE_LABEL[type]) return res.status(400).json({ error: 'Nepoznata vrsta zapisa.' });
   if (!done_date) return res.status(400).json({ error: 'Datum je obavezan.' });
   const vehicle = await one('SELECT id FROM vehicles WHERE id = $1', [id]);
   if (!vehicle) return res.status(404).json({ error: 'Vozilo ne postoji.' });
 
-  const km = odometer === null || odometer === '' ? null : Number(odometer);
-  if (km !== null && !Number.isFinite(km)) return res.status(400).json({ error: 'Kilometraža mora biti broj.' });
+  const km = toKm(odometer);
+  if (km === false) return res.status(400).json({ error: 'Kilometraža mora biti broj.' });
+  // Iduća izmjena ima smisla samo uz izmjenu ulja
+  const nextKm = type === 'ulje' ? toKm(next_odometer) : null;
+  if (nextKm === false) return res.status(400).json({ error: 'Kilometraža iduće izmjene mora biti broj.' });
+  if (km !== null && nextKm !== null && nextKm <= km) {
+    return res.status(400).json({ error: 'Iduća izmjena mora biti na većoj kilometraži od trenutne.' });
+  }
 
   const record = await one(
-    `INSERT INTO vehicle_service_records (vehicle_id, type, done_date, valid_until, odometer, note, created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
-    [id, type, done_date, valid_until || null, km, note.trim(), req.user.id]
+    `INSERT INTO vehicle_service_records (vehicle_id, type, done_date, valid_until, odometer, next_odometer, note, created_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+    [id, type, done_date, valid_until || null, km, nextKm, note.trim(), req.user.id]
   );
   await q('UPDATE vehicles SET updated_at = now() WHERE id = $1', [id]);
   res.status(201).json(record);

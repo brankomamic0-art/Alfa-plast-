@@ -42,6 +42,7 @@ export interface Vehicle {
   /** Zadnja izmjena ulja — vidljivo svima */
   last_oil_date?: string | null;
   last_oil_odometer?: number | null;
+  next_oil_odometer?: number | null;
   /** Samo administrator */
   registration_until?: string | null;
   inspection_until?: string | null;
@@ -79,6 +80,7 @@ export interface VehicleServiceRecord {
   done_date: string;
   valid_until: string | null;
   odometer: number | null;
+  next_odometer: number | null;
   note: string;
   created_by_name: string;
 }
