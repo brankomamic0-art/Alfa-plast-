@@ -25,6 +25,53 @@ CREATE TABLE IF NOT EXISTS vehicles (
   updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Kvarovi vozila: više otvorenih kvarova po vozilu, prijaviti može bilo koja uloga.
+-- Status vozila izvodi se iz ove tablice (postoji li ijedan neriješen kvar).
+CREATE TABLE IF NOT EXISTS vehicle_faults (
+  id           SERIAL PRIMARY KEY,
+  vehicle_id   INTEGER NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
+  reported_by  INTEGER NOT NULL REFERENCES users(id),
+  description  TEXT NOT NULL DEFAULT '',
+  resolved     BOOLEAN NOT NULL DEFAULT FALSE,
+  resolved_by  INTEGER REFERENCES users(id),
+  resolved_at  TIMESTAMPTZ,
+  resolve_note TEXT DEFAULT '',
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_vehicle_faults ON vehicle_faults(vehicle_id, resolved, created_at DESC);
+
+-- Servisna povijest vozila. Unosi isključivo administrator.
+-- Zapisi tipa 'ulje' vidljivi su svima; 'registracija' i 'tehnicki' samo administratoru.
+CREATE TABLE IF NOT EXISTS vehicle_service_records (
+  id          SERIAL PRIMARY KEY,
+  vehicle_id  INTEGER NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
+  type        TEXT NOT NULL CHECK (type IN ('ulje','registracija','tehnicki')),
+  done_date   DATE NOT NULL,          -- kad je obavljeno
+  valid_until DATE,                   -- vrijedi do (registracija / tehnički)
+  odometer    INTEGER,                -- stanje km (izmjena ulja)
+  note        TEXT DEFAULT '',
+  created_by  INTEGER NOT NULL REFERENCES users(id),
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_vehicle_service ON vehicle_service_records(vehicle_id, type, done_date DESC);
+
+-- Prijenos zatečenih kvarova (status 'u_kvaru' + napomena) u tablicu kvarova
+INSERT INTO vehicle_faults (vehicle_id, reported_by, description, created_at)
+SELECT v.id,
+       (SELECT id FROM users WHERE role = 'admin' ORDER BY id LIMIT 1),
+       COALESCE(NULLIF(v.note, ''), 'Prijavljen kvar'),
+       v.updated_at
+FROM vehicles v
+WHERE v.status = 'u_kvaru'
+  AND NOT EXISTS (SELECT 1 FROM vehicle_faults f WHERE f.vehicle_id = v.id)
+  AND EXISTS (SELECT 1 FROM users WHERE role = 'admin');
+
+-- Napomena je prenesena u kvar, briše se s vozila da se ne prikazuje dvaput
+UPDATE vehicles v SET note = ''
+WHERE v.status = 'u_kvaru'
+  AND NULLIF(v.note, '') IS NOT NULL
+  AND EXISTS (SELECT 1 FROM vehicle_faults f WHERE f.vehicle_id = v.id AND f.description = v.note);
+
 -- ============ TO-DO LISTA ============
 -- Statusi: poslano (admin kreirao) -> primljeno (korisnik preuzeo) -> zavrseno
 CREATE TABLE IF NOT EXISTS tasks (

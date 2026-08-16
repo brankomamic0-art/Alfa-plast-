@@ -94,12 +94,12 @@ export default function App() {
   if (!me) return <Login onLogin={(u) => { setMe(u); setTab(u.role === 'admin' ? 'zadaci' : 'baustele'); }} />;
 
   const isAdmin = me.role === 'admin';
-  const isDriver = me.role === 'vozac';
   const tabs: { key: Tab; label: string }[] = [
     { key: 'zadaci', label: 'Zadaci' },
     { key: 'baustele', label: 'Bauštele' },
     ...(isAdmin ? [{ key: 'korisnici' as Tab, label: 'Korisnici' }] : []),
-    ...(isAdmin || isDriver ? [{ key: 'vozila' as Tab, label: 'Vozila' }] : []),
+    // Vozila su dostupna svim ulogama — svatko može prijaviti kvar
+    { key: 'vozila', label: 'Vozila' },
     { key: 'postavke', label: 'Postavke' },
   ];
 
@@ -139,7 +139,7 @@ export default function App() {
             : <Jobs me={me} refreshKey={refreshKey} onOpenJob={setOpenJobId} />
         )}
         {tab === 'korisnici' && isAdmin && <Users users={users} onChanged={bump} />}
-        {tab === 'vozila' && (isAdmin || isDriver) && <Vehicles me={me} vehicles={vehicles} onChanged={bump} />}
+        {tab === 'vozila' && <Vehicles me={me} vehicles={vehicles} onChanged={bump} />}
         {tab === 'postavke' && <Settings me={me} users={users} />}
       </main>
 

@@ -38,12 +38,55 @@ export interface Vehicle {
   note: string;
   active: boolean;
   updated_at: string;
+  open_faults?: number;
+  /** Zadnja izmjena ulja — vidljivo svima */
+  last_oil_date?: string | null;
+  last_oil_odometer?: number | null;
+  /** Samo administrator */
+  registration_until?: string | null;
+  inspection_until?: string | null;
 }
 
 export const VEHICLE_STATUS_LABEL: Record<VehicleStatus, string> = {
   ispravno: 'Ispravno',
   u_kvaru: 'U kvaru',
 };
+
+export interface VehicleFault {
+  id: number;
+  vehicle_id: number;
+  description: string;
+  resolved: boolean;
+  resolve_note: string;
+  resolved_at: string | null;
+  created_at: string;
+  reporter_name: string;
+  resolver_name: string | null;
+}
+
+export type ServiceType = 'ulje' | 'registracija' | 'tehnicki';
+
+export const SERVICE_LABEL: Record<ServiceType, string> = {
+  ulje: 'Izmjena ulja',
+  registracija: 'Registracija',
+  tehnicki: 'Tehnički pregled',
+};
+
+export interface VehicleServiceRecord {
+  id: number;
+  vehicle_id: number;
+  type: ServiceType;
+  done_date: string;
+  valid_until: string | null;
+  odometer: number | null;
+  note: string;
+  created_by_name: string;
+}
+
+export interface VehicleDetail extends Vehicle {
+  faults: VehicleFault[];
+  service: VehicleServiceRecord[];
+}
 
 export interface TaskComment {
   id: number;
@@ -158,6 +201,16 @@ export const JOB_STATUS_LABEL: Record<JobStatus, string> = {
 export function fmtDate(d: string | null | undefined): string {
   if (!d) return '';
   return new Date(d).toLocaleDateString('hr-HR');
+}
+
+/** Koliko je dana ostalo do datuma isteka (negativno = isteklo). */
+export function daysUntil(d: string | null | undefined): number | null {
+  if (!d) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const target = new Date(d);
+  target.setHours(0, 0, 0, 0);
+  return Math.round((target.getTime() - today.getTime()) / 86400000);
 }
 
 export function fmtDateTime(d: string): string {
