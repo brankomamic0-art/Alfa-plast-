@@ -1,28 +1,32 @@
 # Alfa Plast — Praćenje poslova
 
-Web aplikacija (mobilna + desktop, responsive) za praćenje bauštela, materijala, transporta i zadataka. Tri uloge: **Administrator**, **Majstor**, **Vozač**. Sve na hrvatskom.
+Web aplikacija (mobilna + desktop, responsive) za praćenje bauštela, zadataka, voznog parka, farbanja i narudžbi. Tri uloge: **Administrator**, **Majstor**, **Vozač**. Sve na hrvatskom.
 
 ## Funkcionalnosti
 
 **To-do lista**
-- Admin (Toni/Josip) kreira zadatke za bilo kojeg korisnika (uključujući sebe)
-- Statusi: **Poslano → Primljeno → Završeno** (korisnik preuzima i završava; admin može postaviti bilo koji status)
+- Admin (Toni/Josip) kreira zadatke i **dodjeljuje ih većem broju ljudi odjednom**
+- Statusi: **Poslano → Primljeno → Završeno** — **svaki izvršitelj vodi svoj status**; zadatak je završen tek kad su svi gotovi
+- Admin može postaviti status pojedinoj osobi ili svima odjednom, te naknadno mijenjati popis izvršitelja
 - Komentari na svakom zadatku (npr. "rok čekanja", "staklo dolazi 27.7.")
-- Obavijest kad je zadatak poslan; automatski podsjetnik svaka 24 h dok je zadatak "Primljeno" (podesivo kroz `REMINDER_HOURS`)
+- Obavijest kad je zadatak poslan; automatski podsjetnik svaka 24 h svakom izvršitelju koji je zadatak "Primljeno" (podesivo kroz `REMINDER_HOURS`)
 
-**Bauštele (staklene ograde)**
-- Ime bauštele + odabir potrebnog: **Profili / Staklo / Spideri** (sve opcionalno)
-- Status pripreme po stavki: **Naručeno → U izradi → Spremno za montažu** + komentari
-- Kad su sve stavke spremne, bauštela automatski prelazi u "Spremno za montažu" i postaje **vidljiva majstorima i vozačima** (prije toga vide je samo admini)
+**Bauštele**
+- Ime bauštele, adresa, napomena i planirani datum montaže
+- Status bauštele postavlja administrator: **U pripremi → Spremno za montažu → U tijeku → Završeno**; od "Spremno za montažu" nadalje bauštela je **vidljiva majstorima i vozačima** (prije toga vide je samo admini)
 - Planirani datum montaže → 3 dana ranije automatski se kreira podsjetnik u to-do listi (podesivo kroz `JOB_REMINDER_DAYS`)
+- Komentari, dnevni napredak, napomena za sljedeću ekipu, fotografije i prijava problema s fotkom
 
-**Transport (vozači i majstori)**
-- Lokacija po stavki: **Ispred firme / Skladište Čaporice / Skladište Nedo / Na gradilištu** + fotografija + komentar/problem
-- Majstori imaju isti transport-prozor kao vozači
+**Tijek rade (majstori i admin)**
+- Dvije sekcije na bauštelima: **Što je odrađeno** i **Što se mora odradit**
+- Svaki zapis ima **koje majstore** (može ih biti više), **datum** kad su bili i **komentar** — sve je opcionalno
+- Stavke iz "Što se mora odradit" označavaju se gumbom **✔ Odrađeno** (postaju zelene)
+- Vozači tijek rade vide, ali ne upisuju
 
-**Na gradilištu (majstori)**
-- Status materijala: **Na gradilištu → Namontirano → Završeno**
-- Dnevni napredak, napomena za sljedeću ekipu, fotografije rada, prijava problema s fotkom
+**Arhiva bauštela (admin)**
+- U bauštelama su dvije kartice: **Aktivne** i **Arhiva**
+- Pri arhiviranju administrator upisuje **ime majstora (može ih biti više)** i **datum**; ti se podaci vide na kartici u arhivi i mogu se naknadno urediti
+- Bauštela se može vratiti iz arhive, a upisani podaci ostaju sačuvani
 
 **Vozila (vozni park)**
 - Vozila su vidljiva svim ulogama; **kvar može prijaviti bilo koja uloga**, a na istom vozilu može biti **više otvorenih kvarova** istovremeno
@@ -44,12 +48,10 @@ Web aplikacija (mobilna + desktop, responsive) za praćenje bauštela, materijal
 - **Kvačica po artiklu** = zaprimljeno, artikl postaje zelen; rok isporuke se boji kad se bliži ili je probijen
 - **Pretraživanje po artiklu** — unutar dobavljača i kroz sve dobavljače odjednom
 
-**Admin override** — admin može promijeniti bilo koji status (npr. spideri koje dostavlja vanjska firma).
-
 **Obavijesti**
 - Svi dobivaju obavijesti o relevantnim događajima (zvono u headeru, brojač nepročitanih)
 - Svaki korisnik u Postavkama može **utišati obavijesti od pojedinog korisnika**
-- Problemi se šalju svima, statusi montaže adminima, "spremno za montažu" svima
+- Problemi se šalju svima, tijek rade i ostali zapisi adminima, "spremno za montažu" svima
 
 ## Struktura
 
@@ -117,4 +119,4 @@ VAPID_SUBJECT=mailto:tvoj@email.hr
 ## Napomene za širenje
 
 - Kategorije bauštela već postoje u shemi (`staklene_ograde`, `pvc_stolarija`, `alu_stolarija`) — PVC i ALU se kasnije dodaju bez promjene baze
-- Lokacije skladišta su trenutno fiksne u kodu (`server/routes/jobs.js` + `client/src/types.ts`) — po potrebi prebaciti u tablicu
+- Tablica `job_items` ostaje u shemi radi povijesnih zapisa, ali se više ne koristi (zamijenio ju je tijek rade)

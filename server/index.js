@@ -4,7 +4,7 @@ import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import { migrate, q } from './db.js';
+import { migrate, q, one } from './db.js';
 import { notify, userIds } from './notify.js';
 import usersRouter from './routes/users.js';
 import tasksRouter from './routes/tasks.js';
@@ -56,25 +56,26 @@ app.use((err, _req, res, _next) => {
 const REMINDER_HOURS = Number(process.env.REMINDER_HOURS || 24);
 const JOB_REMINDER_DAYS = Number(process.env.JOB_REMINDER_DAYS || 3);
 
+// Podsjetnik ide svakom izvršitelju posebno — zadatak može imati više ljudi.
 async function taskReminders() {
-  const tasks = await q(
-    `SELECT t.*, u.full_name AS assigned_name FROM tasks t
-     JOIN users u ON u.id = t.assigned_to
-     WHERE t.status = 'primljeno'
-       AND COALESCE(t.last_reminded, t.updated_at) < now() - ($1 || ' hours')::interval`,
+  const rows = await q(
+    `SELECT a.task_id, a.user_id, t.title FROM task_assignees a
+     JOIN tasks t ON t.id = a.task_id
+     WHERE a.status = 'primljeno'
+       AND COALESCE(a.last_reminded, a.updated_at) < now() - ($1 || ' hours')::interval`,
     [REMINDER_HOURS]
   );
-  for (const t of tasks) {
+  for (const r of rows) {
     await notify({
-      recipients: [t.assigned_to],
+      recipients: [r.user_id],
       actorId: null,
       type: 'podsjetnik',
       title: 'Podsjetnik na zadatak',
-      body: `Zadatak "${t.title}" još nije završen.`,
+      body: `Zadatak "${r.title}" još nije završen.`,
       refType: 'task',
-      refId: t.id,
+      refId: r.task_id,
     });
-    await q('UPDATE tasks SET last_reminded = now() WHERE id = $1', [t.id]);
+    await q('UPDATE task_assignees SET last_reminded = now() WHERE task_id = $1 AND user_id = $2', [r.task_id, r.user_id]);
   }
 }
 
@@ -87,9 +88,9 @@ async function jobReminders() {
     [JOB_REMINDER_DAYS]
   );
   for (const j of jobs) {
-    await q(
+    const reminder = await one(
       `INSERT INTO tasks (title, description, assigned_to, created_by, status, due_date, job_id, auto_reminder)
-       VALUES ($1,$2,$3,$3,'poslano',$4,$5,TRUE)`,
+       VALUES ($1,$2,$3,$3,'poslano',$4,$5,TRUE) RETURNING id`,
       [
         `Podsjetnik: bauštela "${j.name}"`,
         `Planirana montaža: ${new Date(j.planned_date).toLocaleDateString('hr-HR')}. Provjerite jesu li svi materijali spremni.`,
@@ -98,6 +99,7 @@ async function jobReminders() {
         j.id,
       ]
     );
+    await q('INSERT INTO task_assignees (task_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [reminder.id, j.created_by]);
     await q('UPDATE jobs SET reminder_sent = TRUE WHERE id = $1', [j.id]);
     await notify({
       recipients: await userIds(['admin']),

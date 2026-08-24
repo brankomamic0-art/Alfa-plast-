@@ -4,7 +4,9 @@ import { requireAuth, requireAdmin } from '../auth.js';
 
 const router = Router();
 // Narudžbe i dobavljači su u cijelosti administratorski dio aplikacije.
-router.use(requireAuth, requireAdmin);
+// Router je montiran na /api pa provjeru vežemo uz vlastite putanje —
+// inače bi zahtjevi drugih modula koji ne pogode nijednu rutu dobili 403.
+router.use(['/suppliers', '/orders'], requireAuth, requireAdmin);
 
 function toId(value) {
   if (value === undefined || value === null || value === '') return null;

@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
-import { Task, TaskComment, User, Vehicle, TASK_STATUS_LABEL, VEHICLE_STATUS_LABEL, fmtDate, fmtDateTime } from '../types';
+import {
+  Task, TaskComment, TaskStatus, User, Vehicle,
+  TASK_STATUS_LABEL, VEHICLE_STATUS_LABEL, fmtDate, fmtDateTime, toDateInput,
+} from '../types';
 import { Modal, ErrorBox, TaskBadge } from './ui';
 
 export default function Tasks({ me, users, vehicles, refreshKey }: { me: User; users: User[]; vehicles: Vehicle[]; refreshKey: number }) {
@@ -10,12 +13,16 @@ export default function Tasks({ me, users, vehicles, refreshKey }: { me: User; u
   const isAdmin = me.role === 'admin';
 
   async function load() {
-    setTasks(await api.get<Task[]>('/tasks'));
+    const rows = await api.get<Task[]>('/tasks');
+    setTasks(rows);
+    setOpenTask((cur) => (cur ? rows.find((t) => t.id === cur.id) || null : null));
   }
   useEffect(() => { load(); }, [refreshKey]);
 
-  const active = tasks.filter((t) => t.status !== 'zavrseno');
-  const done = tasks.filter((t) => t.status === 'zavrseno');
+  // Za izvršitelja je zadatak "gotov" kad je on svoj dio završio
+  const isDone = (t: Task) => (t.my_status ? t.my_status === 'zavrseno' : t.status === 'zavrseno');
+  const active = tasks.filter((t) => !isDone(t));
+  const done = tasks.filter(isDone);
 
   return (
     <div>
@@ -41,33 +48,38 @@ export default function Tasks({ me, users, vehicles, refreshKey }: { me: User; u
       )}
 
       {showCreate && (
-        <CreateTaskModal
+        <TaskModal
           users={users}
           vehicles={vehicles}
           onClose={() => setShowCreate(false)}
-          onCreated={() => { setShowCreate(false); load(); }}
+          onDone={() => { setShowCreate(false); load(); }}
         />
       )}
       {openTask && (
         <TaskDetailModal
           task={openTask}
           me={me}
+          users={users}
+          vehicles={vehicles}
           onClose={() => setOpenTask(null)}
-          onChanged={() => load()}
+          onChanged={load}
         />
       )}
     </div>
   );
 }
 
+const ASSIGNEE_BADGE: Record<TaskStatus, string> = { poslano: 'b-blue', primljeno: 'b-amber', zavrseno: 'b-green' };
+
 function TaskCard({ task, isAdmin, onOpen }: { task: Task; isAdmin: boolean; onOpen: () => void }) {
+  const people = task.assignees || [];
+  const doneCount = people.filter((a) => a.status === 'zavrseno').length;
   return (
     <div className="card clickable" onClick={onOpen} role="button">
       <div className="spread">
         <div>
           <h3>{task.auto_reminder ? '⏰ ' : ''}{task.title}</h3>
           <div className="muted">
-            {isAdmin ? <>Za: <b>{task.assigned_name}</b> · </> : null}
             Od: {task.creator_name}
             {task.due_date ? <> · Rok: {fmtDate(task.due_date)}</> : null}
             {task.vehicle_registration ? <> · 🚗 {task.vehicle_registration}</> : null}
@@ -76,37 +88,61 @@ function TaskCard({ task, isAdmin, onOpen }: { task: Task; isAdmin: boolean; onO
         </div>
         <TaskBadge status={task.status} />
       </div>
+
+      {/* Tko sve radi na zadatku — svatko sa svojim statusom */}
+      {(isAdmin || people.length > 1) && people.length > 0 && (
+        <div className="row" style={{ marginTop: 8 }}>
+          {people.length > 1 && (
+            <span className="chip">👥 {doneCount}/{people.length} završilo</span>
+          )}
+          {people.map((a) => (
+            <span key={a.user_id} className={`badge ${ASSIGNEE_BADGE[a.status]}`}>{a.full_name}</span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
-function CreateTaskModal({ users, vehicles, onClose, onCreated }: {
-  users: User[]; vehicles: Vehicle[]; onClose: () => void; onCreated: () => void;
+// =====================================================
+// Kreiranje / uređivanje zadatka (admin) — više izvršitelja
+// =====================================================
+function TaskModal({ task, users, vehicles, onClose, onDone }: {
+  task?: Task; users: User[]; vehicles: Vehicle[]; onClose: () => void; onDone: () => void;
 }) {
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [assignedTo, setAssignedTo] = useState<number>(0);
-  const [vehicleId, setVehicleId] = useState<number>(0);
-  const [dueDate, setDueDate] = useState('');
+  const isEdit = !!task;
+  const [title, setTitle] = useState(task?.title || '');
+  const [description, setDescription] = useState(task?.description || '');
+  const [selected, setSelected] = useState<number[]>(task ? (task.assignees || []).map((a) => a.user_id) : []);
+  const [vehicleId, setVehicleId] = useState<number>(task?.vehicle_id || 0);
+  const [dueDate, setDueDate] = useState(toDateInput(task?.due_date));
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+
   const activeUsers = users.filter((u) => u.active !== false);
-  const assignee = users.find((u) => u.id === assignedTo);
-  const showVehiclePicker = assignee?.role === 'vozac';
+  const showVehiclePicker = activeUsers.some((u) => selected.includes(u.id) && u.role === 'vozac');
   const availableVehicles = vehicles.filter((v) => v.active !== false);
 
+  function toggle(id: number) {
+    setSelected(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id]);
+  }
+
   async function submit() {
-    if (!title.trim() || !assignedTo) {
-      setError('Naslov i osoba su obavezni.');
-      return;
-    }
+    if (!title.trim()) { setError('Naslov je obavezan.'); return; }
+    if (selected.length === 0) { setError('Odaberite barem jednu osobu.'); return; }
     setBusy(true);
+    setError('');
     try {
-      await api.post('/tasks', {
-        title, description, assigned_to: assignedTo, due_date: dueDate || null,
+      const payload = {
+        title,
+        description,
+        assignee_ids: selected,
+        due_date: dueDate || null,
         vehicle_id: showVehiclePicker && vehicleId ? vehicleId : null,
-      });
-      onCreated();
+      };
+      if (isEdit) await api.put(`/tasks/${task!.id}`, payload);
+      else await api.post('/tasks', payload);
+      onDone();
     } catch (e: any) {
       setError(e.message);
       setBusy(false);
@@ -114,7 +150,7 @@ function CreateTaskModal({ users, vehicles, onClose, onCreated }: {
   }
 
   return (
-    <Modal title="Novi zadatak" onClose={onClose}>
+    <Modal title={isEdit ? 'Uredi zadatak' : 'Novi zadatak'} onClose={onClose}>
       <ErrorBox msg={error} />
       <div className="field">
         <label>Naslov *</label>
@@ -124,15 +160,20 @@ function CreateTaskModal({ users, vehicles, onClose, onCreated }: {
         <label>Opis</label>
         <textarea value={description} onChange={(e) => setDescription(e.target.value)} />
       </div>
+
       <div className="field">
-        <label>Dodijeli osobi *</label>
-        <select value={assignedTo} onChange={(e) => setAssignedTo(Number(e.target.value))}>
-          <option value={0}>— odaberi —</option>
-          {activeUsers.map((u) => (
-            <option key={u.id} value={u.id}>{u.full_name} ({u.username})</option>
-          ))}
-        </select>
+        <label>Dodijeli osobama * {selected.length > 0 && `(${selected.length})`}</label>
+        {activeUsers.map((u) => (
+          <label key={u.id} className="checkline">
+            <input type="checkbox" checked={selected.includes(u.id)} onChange={() => toggle(u.id)} />
+            {u.full_name} <span className="chip">{u.role}</span>
+          </label>
+        ))}
+        <div className="muted" style={{ marginTop: 4 }}>
+          Može ih se odabrati više — svatko vodi svoj status (Poslano → Primljeno → Završeno).
+        </div>
       </div>
+
       {showVehiclePicker && (
         <div className="field">
           <label>Vozilo (opcionalno)</label>
@@ -146,33 +187,41 @@ function CreateTaskModal({ users, vehicles, onClose, onCreated }: {
           </select>
         </div>
       )}
+
       <div className="field">
         <label>Rok (opcionalno)</label>
         <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
       </div>
+
       <button className="btn btn-primary btn-block" onClick={submit} disabled={busy}>
-        {busy ? 'Spremanje…' : 'Kreiraj zadatak'}
+        {busy ? 'Spremanje…' : isEdit ? 'Spremi promjene' : 'Kreiraj zadatak'}
       </button>
     </Modal>
   );
 }
 
-function TaskDetailModal({ task, me, onClose, onChanged }: { task: Task; me: User; onClose: () => void; onChanged: () => void }) {
-  const [current, setCurrent] = useState<Task>(task);
+// =====================================================
+// Detalj zadatka
+// =====================================================
+function TaskDetailModal({ task, me, users, vehicles, onClose, onChanged }: {
+  task: Task; me: User; users: User[]; vehicles: Vehicle[]; onClose: () => void; onChanged: () => void;
+}) {
   const [comments, setComments] = useState<TaskComment[]>([]);
   const [newComment, setNewComment] = useState('');
+  const [showEdit, setShowEdit] = useState(false);
   const [error, setError] = useState('');
   const isAdmin = me.role === 'admin';
-  const isMine = current.assigned_to === me.id;
+  const people = task.assignees || [];
+  const myStatus = task.my_status;
 
   useEffect(() => {
     api.get<TaskComment[]>(`/tasks/${task.id}/comments`).then(setComments).catch(() => {});
   }, [task.id]);
 
-  async function setStatus(status: string) {
+  /** Bez `userId` admin mijenja status svima; s njim samo toj osobi. */
+  async function setStatus(status: TaskStatus, userId?: number) {
     try {
-      const updated = await api.put<Task>(`/tasks/${task.id}/status`, { status });
-      setCurrent({ ...current, status: updated.status });
+      await api.put(`/tasks/${task.id}/status`, { status, user_id: userId ?? null });
       onChanged();
     } catch (e: any) {
       setError(e.message);
@@ -199,40 +248,60 @@ function TaskDetailModal({ task, me, onClose, onChanged }: { task: Task; me: Use
   }
 
   return (
-    <Modal title={current.title} onClose={onClose}>
+    <Modal title={task.title} onClose={onClose}>
       <div className="row" style={{ marginBottom: 10 }}>
-        <TaskBadge status={current.status} />
-        {current.due_date && <span className="chip">Rok: {fmtDate(current.due_date)}</span>}
-        {current.vehicle_registration && <span className="chip">🚗 {current.vehicle_registration}</span>}
+        <TaskBadge status={task.status} />
+        {task.due_date && <span className="chip">Rok: {fmtDate(task.due_date)}</span>}
+        {task.vehicle_registration && <span className="chip">🚗 {task.vehicle_registration}</span>}
       </div>
       <div className="muted" style={{ marginBottom: 6 }}>
-        Za: <b>{current.assigned_name}</b> · Kreirao: {current.creator_name} · {fmtDateTime(current.created_at)}
+        Kreirao: {task.creator_name} · {fmtDateTime(task.created_at)}
       </div>
-      {current.description && <p style={{ whiteSpace: 'pre-wrap' }}>{current.description}</p>}
+      {task.description && <p style={{ whiteSpace: 'pre-wrap' }}>{task.description}</p>}
       <ErrorBox msg={error} />
 
+      {/* Moje akcije */}
       <div className="btn-row">
-        {isMine && current.status === 'poslano' && (
+        {myStatus === 'poslano' && (
           <button className="btn btn-primary" onClick={() => setStatus('primljeno')}>▶ Preuzmi zadatak</button>
         )}
-        {isMine && current.status === 'primljeno' && (
+        {myStatus === 'primljeno' && (
           <button className="btn btn-green" onClick={() => setStatus('zavrseno')}>✔ Označi završeno</button>
         )}
         {isAdmin && (
           <>
-            <select
-              value={current.status}
-              onChange={(e) => setStatus(e.target.value)}
-              style={{ padding: '10px 12px', borderRadius: 10, border: '1.5px solid var(--line)', fontWeight: 700 }}
-            >
-              {(['poslano', 'primljeno', 'zavrseno'] as const).map((s) => (
-                <option key={s} value={s}>{TASK_STATUS_LABEL[s]}</option>
-              ))}
-            </select>
+            <button className="btn btn-ghost" onClick={() => setShowEdit(true)}>Uredi</button>
             <button className="btn btn-danger" onClick={remove}>Obriši</button>
           </>
         )}
       </div>
+
+      {/* Tko radi na zadatku — admin može mijenjati status pojedincu */}
+      <div className="section-title">
+        Dodijeljeno {people.length > 1 && `(${people.length})`}
+      </div>
+      {people.length === 0 && <div className="muted">Nema dodijeljenih osoba.</div>}
+      {people.map((a) => (
+        <div key={a.user_id} className="switch-line">
+          <div>
+            <div className="nm">{a.full_name}{a.user_id === me.id && ' (vi)'}</div>
+            <div className="rl">{TASK_STATUS_LABEL[a.status]}</div>
+          </div>
+          {isAdmin ? (
+            <select
+              value={a.status}
+              onChange={(e) => setStatus(e.target.value as TaskStatus, a.user_id)}
+              style={{ padding: '8px 10px', borderRadius: 9, border: '1.5px solid var(--line)', fontWeight: 700 }}
+            >
+              {(['poslano', 'primljeno', 'zavrseno'] as TaskStatus[]).map((s) => (
+                <option key={s} value={s}>{TASK_STATUS_LABEL[s]}</option>
+              ))}
+            </select>
+          ) : (
+            <TaskBadge status={a.status} />
+          )}
+        </div>
+      ))}
 
       <div className="section-title">Komentari</div>
       {comments.length === 0 && <div className="muted" style={{ marginBottom: 8 }}>Još nema komentara.</div>}
@@ -250,6 +319,16 @@ function TaskDetailModal({ task, me, onClose, onChanged }: { task: Task; me: Use
         />
       </div>
       <button className="btn btn-dark btn-block" onClick={addComment}>Dodaj komentar</button>
+
+      {showEdit && (
+        <TaskModal
+          task={task}
+          users={users}
+          vehicles={vehicles}
+          onClose={() => setShowEdit(false)}
+          onDone={() => { setShowEdit(false); onChanged(); }}
+        />
+      )}
     </Modal>
   );
 }

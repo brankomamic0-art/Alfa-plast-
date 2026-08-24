@@ -10,18 +10,30 @@ export interface User {
 
 export type TaskStatus = 'poslano' | 'primljeno' | 'zavrseno';
 
+export interface TaskAssignee {
+  user_id: number;
+  full_name: string;
+  role: Role;
+  status: TaskStatus;
+}
+
 export interface Task {
   id: number;
   title: string;
   description: string;
   assigned_to: number;
   created_by: number;
+  /** Zbirni status: završen tek kad su svi izvršitelji gotovi */
   status: TaskStatus;
   due_date: string | null;
   job_id: number | null;
   vehicle_id: number | null;
   auto_reminder: boolean;
   created_at: string;
+  /** Zadatak može biti dodijeljen većem broju ljudi */
+  assignees: TaskAssignee[];
+  /** Status prijavljenog korisnika na ovom zadatku (null ako nije izvršitelj) */
+  my_status: TaskStatus | null;
   assigned_name?: string;
   creator_name?: string;
   comment_count?: number;
@@ -170,20 +182,7 @@ export interface TaskComment {
   full_name: string;
 }
 
-export type ItemType = 'profili' | 'staklo' | 'spideri';
-export type ItemStatus = 'naruceno' | 'u_izradi' | 'spremno_za_montazu';
-export type ItemLocation = 'ispred_firme' | 'caporice' | 'nedo' | 'na_gradilistu';
-export type SiteStatus = 'na_gradilistu' | 'namontirano' | 'zavrseno';
 export type JobStatus = 'u_pripremi' | 'spremno_za_montazu' | 'u_tijeku' | 'zavrseno';
-
-export interface JobItem {
-  id: number;
-  job_id?: number;
-  type: ItemType;
-  status: ItemStatus;
-  location: ItemLocation | null;
-  site_status: SiteStatus | null;
-}
 
 export interface JobEvent {
   id: number;
@@ -197,6 +196,33 @@ export interface JobEvent {
   full_name: string;
 }
 
+export type WorkLogKind = 'odradeno' | 'za_odraditi';
+
+export const WORK_LOG_LABEL: Record<WorkLogKind, string> = {
+  odradeno: 'Što je odrađeno',
+  za_odraditi: 'Što se mora odradit',
+};
+
+export interface JobWorker {
+  user_id: number;
+  full_name: string;
+}
+
+export interface JobWorkLog {
+  id: number;
+  job_id: number;
+  kind: WorkLogKind;
+  work_date: string | null;
+  body: string;
+  done: boolean;
+  done_at: string | null;
+  done_by_name: string | null;
+  created_by: number;
+  created_by_name: string;
+  created_at: string;
+  workers: JobWorker[];
+}
+
 export interface Job {
   id: number;
   name: string;
@@ -208,8 +234,14 @@ export interface Job {
   created_by: number;
   creator_name?: string;
   archived: boolean;
+  /** Datum koji administrator upiše pri arhiviranju */
+  archived_date: string | null;
+  /** Majstori koje administrator upiše pri arhiviranju */
+  archive_workers: JobWorker[];
   updated_at: string;
-  items: JobItem[];
+  done_count?: number;
+  todo_count?: number;
+  work_logs?: JobWorkLog[];
   events?: JobEvent[];
 }
 
@@ -236,31 +268,6 @@ export const ROLE_LABEL: Record<Role, string> = {
 export const TASK_STATUS_LABEL: Record<TaskStatus, string> = {
   poslano: 'Poslano',
   primljeno: 'Primljeno',
-  zavrseno: 'Završeno',
-};
-
-export const ITEM_LABEL: Record<ItemType, string> = {
-  profili: 'Profili',
-  staklo: 'Staklo',
-  spideri: 'Spideri',
-};
-
-export const ITEM_STATUS_LABEL: Record<ItemStatus, string> = {
-  naruceno: 'Naručeno',
-  u_izradi: 'U izradi',
-  spremno_za_montazu: 'Spremno za montažu',
-};
-
-export const LOCATION_LABEL: Record<ItemLocation, string> = {
-  ispred_firme: 'Ispred firme',
-  caporice: 'Skladište Čaporice',
-  nedo: 'Skladište Nedo',
-  na_gradilistu: 'Na gradilištu',
-};
-
-export const SITE_LABEL: Record<SiteStatus, string> = {
-  na_gradilistu: 'Na gradilištu',
-  namontirano: 'Namontirano',
   zavrseno: 'Završeno',
 };
 

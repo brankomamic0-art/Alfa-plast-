@@ -140,8 +140,8 @@ export default function App() {
         {tab === 'zadaci' && <Tasks me={me} users={users} vehicles={vehicles} refreshKey={refreshKey} />}
         {tab === 'baustele' && (
           openJobId
-            ? <JobDetail jobId={openJobId} me={me} onBack={() => { setOpenJobId(null); bump(); }} onChanged={bump} />
-            : <Jobs me={me} refreshKey={refreshKey} onOpenJob={setOpenJobId} />
+            ? <JobDetail jobId={openJobId} me={me} users={users} onBack={() => { setOpenJobId(null); bump(); }} onChanged={bump} />
+            : <Jobs me={me} users={users} refreshKey={refreshKey} onOpenJob={setOpenJobId} />
         )}
         {tab === 'korisnici' && isAdmin && <Users users={users} onChanged={bump} />}
         {tab === 'vozila' && <Vehicles me={me} vehicles={vehicles} onChanged={bump} />}

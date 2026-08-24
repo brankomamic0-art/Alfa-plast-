@@ -1,11 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState, useEffect } from 'react';
 import { api } from '../api';
 import {
-  Job, JobItem, User, ItemType, ItemLocation, SiteStatus, ItemStatus, JobStatus,
-  ITEM_LABEL, ITEM_STATUS_LABEL, LOCATION_LABEL, SITE_LABEL, JOB_STATUS_LABEL,
-  fmtDate, fmtDateTime,
+  Job, JobWorkLog, User, JobStatus, WorkLogKind,
+  JOB_STATUS_LABEL, WORK_LOG_LABEL, fmtDate, fmtDateTime, todayInput,
 } from '../types';
-import { Modal, ErrorBox, JobBadge, ItemStatusBadge, LocationBadge, SiteBadge, ItemChain } from './ui';
+import { Modal, ErrorBox, JobBadge } from './ui';
 
 const EVENT_KIND_LABEL: Record<string, string> = {
   komentar: '💬 Komentar',
@@ -17,22 +16,19 @@ const EVENT_KIND_LABEL: Record<string, string> = {
   fotografija: '📷 Fotografije',
 };
 
-export default function JobDetail({ jobId, me, onBack, onChanged }: {
-  jobId: number; me: User; onBack: () => void; onChanged: () => void;
+export default function JobDetail({ jobId, me, users, onBack, onChanged }: {
+  jobId: number; me: User; users: User[]; onBack: () => void; onChanged: () => void;
 }) {
   const [job, setJob] = useState<Job | null>(null);
   const [error, setError] = useState('');
-  const [transportItem, setTransportItem] = useState<JobItem | null>(null);
-  const [siteItem, setSiteItem] = useState<JobItem | null>(null);
-  const [statusItem, setStatusItem] = useState<JobItem | null>(null);
   const [eventKind, setEventKind] = useState<string | null>(null);
+  const [logKind, setLogKind] = useState<WorkLogKind | null>(null);
   const isAdmin = me.role === 'admin';
-  const canMount = me.role !== 'vozac'; // majstor + admin
+  const canLogWork = me.role !== 'vozac'; // majstor + admin
 
   async function load() {
     try {
-      const j = await api.get<Job>(`/jobs/${jobId}`);
-      setJob(j);
+      setJob(await api.get<Job>(`/jobs/${jobId}`));
     } catch (e: any) {
       setError(e.message);
     }
@@ -41,18 +37,10 @@ export default function JobDetail({ jobId, me, onBack, onChanged }: {
 
   async function setJobStatus(status: JobStatus) {
     try {
-      const j = await api.put<Job>(`/jobs/${jobId}/status`, { status });
-      setJob({ ...j, events: job?.events });
+      await api.put(`/jobs/${jobId}/status`, { status });
       load();
       onChanged();
     } catch (e: any) { setError(e.message); }
-  }
-
-
-  async function archive(arch: boolean) {
-    await api.put(`/jobs/${jobId}`, { archived: arch });
-    onChanged();
-    onBack();
   }
 
   async function remove() {
@@ -72,6 +60,10 @@ export default function JobDetail({ jobId, me, onBack, onChanged }: {
   }
   if (!job) return <div className="empty">Učitavanje…</div>;
 
+  const logs = job.work_logs || [];
+  const doneLogs = logs.filter((l) => l.kind === 'odradeno');
+  const todoLogs = logs.filter((l) => l.kind === 'za_odraditi');
+
   return (
     <div>
       <button className="btn btn-ghost btn-sm" onClick={onBack}>← Sve bauštele</button>
@@ -89,6 +81,15 @@ export default function JobDetail({ jobId, me, onBack, onChanged }: {
           <JobBadge status={job.status} />
         </div>
         {job.note && <p className="muted" style={{ whiteSpace: 'pre-wrap' }}>{job.note}</p>}
+        {job.archived && (
+          <div className="row" style={{ marginTop: 8 }}>
+            <span className="badge b-gray">Arhivirano</span>
+            {job.archived_date && <span className="chip">📅 {fmtDate(job.archived_date)}</span>}
+            {job.archive_workers.map((w) => (
+              <span key={w.user_id} className="badge b-purple">{w.full_name}</span>
+            ))}
+          </div>
+        )}
         <ErrorBox msg={error} />
         {isAdmin && (
           <div className="btn-row">
@@ -101,62 +102,32 @@ export default function JobDetail({ jobId, me, onBack, onChanged }: {
                 <option key={s} value={s}>{JOB_STATUS_LABEL[s]}</option>
               ))}
             </select>
-            <button className="btn btn-ghost btn-sm" onClick={() => archive(!job.archived)}>
-              {job.archived ? 'Vrati iz arhive' : 'Arhiviraj'}
-            </button>
             <button className="btn btn-danger btn-sm" onClick={remove}>Obriši</button>
           </div>
         )}
       </div>
 
-      {/* ---------- Stavke ---------- */}
-      <div className="section-title">Materijali</div>
-      <div className="card">
-        {job.items.length === 0 && <div className="muted">Nema dodanih stavki.</div>}
-        {job.items.map((item, idx) => (
-          <div key={item.id} className={idx === 0 ? undefined : 'item-block'}>
-            <div className="spread">
-              <b style={{ fontSize: 16 }}>{ITEM_LABEL[item.type]}</b>
-              <div className="row">
-                <ItemStatusBadge status={item.status} />
-                <LocationBadge location={item.location} />
-                <SiteBadge status={item.site_status} />
-              </div>
-            </div>
-            <ItemChain status={item.status} location={item.location} site={item.site_status} />
-            <div className="btn-row">
-              {isAdmin && (
-                <button className="btn btn-sm" onClick={() => setStatusItem(item)}>🔄 Status priprave</button>
-              )}
-              <button className="btn btn-sm" onClick={() => setTransportItem(item)}>🚚 Transport</button>
-              {canMount && (
-                <button className="btn btn-sm" onClick={() => setSiteItem(item)}>🔧 Montaža</button>
-              )}
-              {isAdmin && (
-                <button
-                  className="btn btn-sm btn-danger"
-                  onClick={async () => {
-                    if (!confirm(`Ukloniti stavku ${ITEM_LABEL[item.type]}?`)) return;
-                    await api.del(`/jobs/${jobId}/items/${item.id}`);
-                    load();
-                  }}
-                >✕</button>
-              )}
-            </div>
-          </div>
-        ))}
-        {isAdmin && (
-          <div className="btn-row" style={{ borderTop: '1px solid var(--line)', paddingTop: 12 }}>
-            {(['profili', 'staklo', 'spideri'] as ItemType[]).map((t) => (
-              <button
-                key={t}
-                className="btn btn-sm btn-ghost"
-                onClick={async () => { await api.post(`/jobs/${jobId}/items`, { type: t }); load(); }}
-              >+ {ITEM_LABEL[t]}</button>
-            ))}
-          </div>
-        )}
-      </div>
+      {/* ---------- Tijek rade ---------- */}
+      <WorkSection
+        kind="odradeno"
+        logs={doneLogs}
+        job={job}
+        me={me}
+        canLog={canLogWork}
+        onAdd={() => setLogKind('odradeno')}
+        onChanged={() => { load(); onChanged(); }}
+        onError={setError}
+      />
+      <WorkSection
+        kind="za_odraditi"
+        logs={todoLogs}
+        job={job}
+        me={me}
+        canLog={canLogWork}
+        onAdd={() => setLogKind('za_odraditi')}
+        onChanged={() => { load(); onChanged(); }}
+        onError={setError}
+      />
 
       {/* ---------- Akcije ---------- */}
       <div className="section-title">Akcije</div>
@@ -183,28 +154,13 @@ export default function JobDetail({ jobId, me, onBack, onChanged }: {
         ))}
       </div>
 
-      {statusItem && (
-        <ItemStatusModal
+      {logKind && (
+        <WorkLogModal
           jobId={jobId}
-          item={statusItem}
-          onClose={() => setStatusItem(null)}
-          onDone={() => { setStatusItem(null); load(); onChanged(); }}
-        />
-      )}
-      {transportItem && (
-        <TransportModal
-          jobId={jobId}
-          item={transportItem}
-          onClose={() => setTransportItem(null)}
-          onDone={() => { setTransportItem(null); load(); onChanged(); }}
-        />
-      )}
-      {siteItem && (
-        <SiteStatusModal
-          jobId={jobId}
-          item={siteItem}
-          onClose={() => setSiteItem(null)}
-          onDone={() => { setSiteItem(null); load(); onChanged(); }}
+          kind={logKind}
+          users={users}
+          onClose={() => setLogKind(null)}
+          onDone={() => { setLogKind(null); load(); onChanged(); }}
         />
       )}
       {eventKind && (
@@ -219,19 +175,114 @@ export default function JobDetail({ jobId, me, onBack, onChanged }: {
   );
 }
 
-// ---------- Status priprave stavke (naručeno / u izradi / spremno za montažu) + komentar ----------
-function ItemStatusModal({ jobId, item, onClose, onDone }: {
-  jobId: number; item: JobItem; onClose: () => void; onDone: () => void;
+// =====================================================
+// Tijek rade — dvije sekcije: što je odrađeno / što se mora odradit
+// =====================================================
+function WorkSection({ kind, logs, job, me, canLog, onAdd, onChanged, onError }: {
+  kind: WorkLogKind;
+  logs: JobWorkLog[];
+  job: Job;
+  me: User;
+  canLog: boolean;
+  onAdd: () => void;
+  onChanged: () => void;
+  onError: (msg: string) => void;
 }) {
-  const [status, setStatus] = useState<ItemStatus>(item.status);
-  const [comment, setComment] = useState('');
+  const isTodo = kind === 'za_odraditi';
+  const open = logs.filter((l) => !l.done).length;
+
+  async function toggleDone(log: JobWorkLog) {
+    try {
+      await api.put(`/jobs/${job.id}/work-logs/${log.id}`, { done: !log.done });
+      onChanged();
+    } catch (e: any) { onError(e.message); }
+  }
+
+  async function remove(log: JobWorkLog) {
+    if (!confirm('Obrisati ovaj zapis?')) return;
+    try {
+      await api.del(`/jobs/${job.id}/work-logs/${log.id}`);
+      onChanged();
+    } catch (e: any) { onError(e.message); }
+  }
+
+  return (
+    <>
+      <div className="section-title">
+        {kind === 'odradeno' ? '✔ ' : '◻ '}{WORK_LOG_LABEL[kind]}
+        {isTodo && open > 0 && <span className="chip">{open} otvoreno</span>}
+      </div>
+
+      <div className="card">
+        {logs.length === 0 && <div className="muted">Nema zapisa.</div>}
+
+        {logs.map((l) => (
+          <div key={l.id} className={`worklog${l.done ? ' done' : ''}`}>
+            <div className="spread">
+              <div style={{ minWidth: 0 }}>
+                <div className="nm">
+                  {l.work_date ? fmtDate(l.work_date) : 'bez datuma'}
+                  {l.done && <> <span className="badge b-green">Odrađeno</span></>}
+                </div>
+                <div className="rl">
+                  {l.workers.length > 0
+                    ? l.workers.map((w) => w.full_name).join(', ')
+                    : `upisao ${l.created_by_name}`}
+                </div>
+              </div>
+              {isTodo && canLog && (
+                <button
+                  className={`btn btn-sm ${l.done ? 'btn-ghost' : 'btn-green'}`}
+                  onClick={() => toggleDone(l)}
+                >{l.done ? 'Vrati' : '✔ Odrađeno'}</button>
+              )}
+            </div>
+            {l.body && <div className="body">{l.body}</div>}
+            {(me.role === 'admin' || l.created_by === me.id) && (
+              <button className="btn btn-sm btn-ghost" onClick={() => remove(l)}>Obriši</button>
+            )}
+          </div>
+        ))}
+
+        {canLog && (
+          <div className="btn-row" style={{ borderTop: logs.length ? '1px solid var(--line)' : 'none', paddingTop: logs.length ? 12 : 0 }}>
+            <button className="btn btn-sm btn-primary" onClick={onAdd}>+ {WORK_LOG_LABEL[kind]}</button>
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
+/** Unos u tijek rade: majstori, datum i komentar — sve je opcionalno. */
+function WorkLogModal({ jobId, kind, users, onClose, onDone }: {
+  jobId: number; kind: WorkLogKind; users: User[]; onClose: () => void; onDone: () => void;
+}) {
+  const [selected, setSelected] = useState<number[]>([]);
+  const [date, setDate] = useState(kind === 'odradeno' ? todayInput() : '');
+  const [body, setBody] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const candidates = users.filter((u) => u.active !== false && u.role !== 'vozac');
+
+  function toggle(id: number) {
+    setSelected(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id]);
+  }
 
   async function submit() {
+    if (!body.trim() && selected.length === 0 && !date) {
+      setError('Upišite barem komentar, majstora ili datum.');
+      return;
+    }
     setBusy(true);
+    setError('');
     try {
-      await api.put(`/jobs/${jobId}/items/${item.id}/status`, { status, comment });
+      await api.post(`/jobs/${jobId}/work-logs`, {
+        kind,
+        work_date: date || null,
+        body,
+        worker_ids: selected,
+      });
       onDone();
     } catch (e: any) {
       setError(e.message);
@@ -240,146 +291,36 @@ function ItemStatusModal({ jobId, item, onClose, onDone }: {
   }
 
   return (
-    <Modal title={`Status priprave — ${ITEM_LABEL[item.type]}`} onClose={onClose}>
+    <Modal title={WORK_LOG_LABEL[kind]} onClose={onClose}>
       <ErrorBox msg={error} />
+
       <div className="field">
-        <label>Status</label>
-        <div className="btn-row" style={{ marginTop: 4 }}>
-          {(Object.keys(ITEM_STATUS_LABEL) as ItemStatus[]).map((s) => (
-            <button
-              key={s}
-              className={`btn btn-sm ${status === s ? 'btn-primary' : 'btn-ghost'}`}
-              onClick={() => setStatus(s)}
-            >{ITEM_STATUS_LABEL[s]}</button>
-          ))}
-        </div>
+        <label>Koji majstori su bili (opcionalno) {selected.length > 0 && `(${selected.length})`}</label>
+        {candidates.map((u) => (
+          <label key={u.id} className="checkline">
+            <input type="checkbox" checked={selected.includes(u.id)} onChange={() => toggle(u.id)} />
+            {u.full_name} <span className="chip">{u.role}</span>
+          </label>
+        ))}
+        {candidates.length === 0 && <div className="muted">Nema majstora u sustavu.</div>}
       </div>
+
+      <div className="field">
+        <label>Datum (opcionalno)</label>
+        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+      </div>
+
       <div className="field">
         <label>Komentar (opcionalno)</label>
         <textarea
-          placeholder="npr. staklo dolazi 27.7.2026, materijali poslani na farbanje…"
-          value={comment}
-          onChange={(e) => setComment(e.target.value)}
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+          placeholder={kind === 'odradeno' ? 'Što je odrađeno?' : 'Što se mora odraditi?'}
         />
       </div>
+
       <button className="btn btn-primary btn-block" onClick={submit} disabled={busy}>
-        {busy ? 'Spremanje…' : 'Spremi status'}
-      </button>
-    </Modal>
-  );
-}
-
-// ---------- Transport: lokacija + fotka + komentar ----------
-function TransportModal({ jobId, item, onClose, onDone }: {
-  jobId: number; item: JobItem; onClose: () => void; onDone: () => void;
-}) {
-  const [location, setLocation] = useState<ItemLocation | ''>(item.location || '');
-  const [comment, setComment] = useState('');
-  const [photo, setPhoto] = useState<File | null>(null);
-  const [preview, setPreview] = useState<string | null>(null);
-  const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
-
-  function pickPhoto(f: File | null) {
-    setPhoto(f);
-    setPreview(f ? URL.createObjectURL(f) : null);
-  }
-
-  async function submit() {
-    if (!location) { setError('Odaberite lokaciju.'); return; }
-    setBusy(true);
-    try {
-      const form = new FormData();
-      form.append('location', location);
-      form.append('comment', comment);
-      if (photo) form.append('photo', photo);
-      await api.putForm(`/jobs/${jobId}/items/${item.id}/location`, form);
-      onDone();
-    } catch (e: any) {
-      setError(e.message);
-      setBusy(false);
-    }
-  }
-
-  return (
-    <Modal title={`Transport — ${ITEM_LABEL[item.type]}`} onClose={onClose}>
-      <ErrorBox msg={error} />
-      <div className="field">
-        <label>Gdje se materijal nalazi?</label>
-        <div className="btn-row" style={{ marginTop: 4 }}>
-          {(Object.keys(LOCATION_LABEL) as ItemLocation[]).map((loc) => (
-            <button
-              key={loc}
-              className={`btn btn-sm ${location === loc ? 'btn-primary' : 'btn-ghost'}`}
-              onClick={() => setLocation(loc)}
-            >{LOCATION_LABEL[loc]}</button>
-          ))}
-        </div>
-      </div>
-      <div className="field">
-        <label>Komentar / problem (opcionalno)</label>
-        <textarea value={comment} onChange={(e) => setComment(e.target.value)} />
-      </div>
-      <div className="field">
-        <label>Fotografija (opcionalno)</label>
-        <input
-          ref={fileRef}
-          type="file"
-          accept="image/*"
-          onChange={(e) => pickPhoto(e.target.files?.[0] || null)}
-        />
-        {preview && <img className="photo-preview" src={preview} alt="Pregled" />}
-      </div>
-      <button className="btn btn-primary btn-block" onClick={submit} disabled={busy}>
-        {busy ? 'Spremanje…' : 'Spremi lokaciju'}
-      </button>
-    </Modal>
-  );
-}
-
-// ---------- Status montaže na gradilištu ----------
-function SiteStatusModal({ jobId, item, onClose, onDone }: {
-  jobId: number; item: JobItem; onClose: () => void; onDone: () => void;
-}) {
-  const [status, setStatus] = useState<SiteStatus | ''>(item.site_status || '');
-  const [comment, setComment] = useState('');
-  const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
-
-  async function submit() {
-    if (!status) { setError('Odaberite status.'); return; }
-    setBusy(true);
-    try {
-      await api.put(`/jobs/${jobId}/items/${item.id}/site-status`, { site_status: status, comment });
-      onDone();
-    } catch (e: any) {
-      setError(e.message);
-      setBusy(false);
-    }
-  }
-
-  return (
-    <Modal title={`Montaža — ${ITEM_LABEL[item.type]}`} onClose={onClose}>
-      <ErrorBox msg={error} />
-      <div className="field">
-        <label>Status na gradilištu</label>
-        <div className="btn-row" style={{ marginTop: 4 }}>
-          {(Object.keys(SITE_LABEL) as SiteStatus[]).map((s) => (
-            <button
-              key={s}
-              className={`btn btn-sm ${status === s ? 'btn-primary' : 'btn-ghost'}`}
-              onClick={() => setStatus(s)}
-            >{SITE_LABEL[s]}</button>
-          ))}
-        </div>
-      </div>
-      <div className="field">
-        <label>Komentar (opcionalno)</label>
-        <textarea value={comment} onChange={(e) => setComment(e.target.value)} />
-      </div>
-      <button className="btn btn-primary btn-block" onClick={submit} disabled={busy}>
-        {busy ? 'Spremanje…' : 'Spremi status'}
+        {busy ? 'Spremanje…' : 'Spremi zapis'}
       </button>
     </Modal>
   );

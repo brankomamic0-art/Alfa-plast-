@@ -94,6 +94,27 @@ CREATE TABLE IF NOT EXISTS tasks (
 );
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS vehicle_id INTEGER REFERENCES vehicles(id) ON DELETE SET NULL;
 
+
+-- Zadatak može biti dodijeljen većem broju ljudi; svatko vodi svoj status.
+-- tasks.assigned_to i tasks.status ostaju kao "glavni izvršitelj" / zbirni status.
+CREATE TABLE IF NOT EXISTS task_assignees (
+  task_id       INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  status        TEXT NOT NULL DEFAULT 'poslano'
+                CHECK (status IN ('poslano','primljeno','zavrseno')),
+  last_reminded TIMESTAMPTZ,
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (task_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_task_assignees_user ON task_assignees(user_id, status);
+
+-- Prijenos zatečenih zadataka (jedan izvršitelj) u tablicu izvršitelja
+INSERT INTO task_assignees (task_id, user_id, status, last_reminded, updated_at)
+SELECT t.id, t.assigned_to, t.status, t.last_reminded, t.updated_at
+FROM tasks t
+WHERE t.assigned_to IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM task_assignees a WHERE a.task_id = t.id);
+
 CREATE TABLE IF NOT EXISTS task_comments (
   id         SERIAL PRIMARY KEY,
   task_id    INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
@@ -148,6 +169,39 @@ CREATE TABLE IF NOT EXISTS job_events (
   body       TEXT DEFAULT '',
   photo_path TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+
+-- ============ TIJEK RADE NA BAUŠTELI ============
+-- Tko je bio, što je odrađeno i što se mora odraditi. Sva polja su opcionalna.
+CREATE TABLE IF NOT EXISTS job_work_logs (
+  id         SERIAL PRIMARY KEY,
+  job_id     INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  kind       TEXT NOT NULL CHECK (kind IN ('odradeno','za_odraditi')),
+  work_date  DATE,                             -- datum kad je majstor bio
+  body       TEXT DEFAULT '',                  -- komentar majstora
+  done       BOOLEAN NOT NULL DEFAULT FALSE,   -- samo za 'za_odraditi': odrađeno naknadno
+  done_by    INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  done_at    TIMESTAMPTZ,
+  created_by INTEGER NOT NULL REFERENCES users(id),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_job_work_logs ON job_work_logs(job_id, kind, work_date DESC, id DESC);
+
+-- Majstori koji su bili na tom zapisu (može ih biti više)
+CREATE TABLE IF NOT EXISTS job_work_log_workers (
+  log_id  INTEGER NOT NULL REFERENCES job_work_logs(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  PRIMARY KEY (log_id, user_id)
+);
+
+-- ============ ARHIVA BAUŠTELA ============
+-- Pri arhiviranju administrator upisuje majstore (može ih biti više) i datum.
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS archived_date DATE;
+CREATE TABLE IF NOT EXISTS job_archive_workers (
+  job_id  INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  PRIMARY KEY (job_id, user_id)
 );
 
 -- ============ OBAVIJESTI ============

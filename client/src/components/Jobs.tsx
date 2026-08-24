@@ -1,31 +1,52 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api';
-import { Job, ItemType, User, ITEM_LABEL, fmtDate } from '../types';
-import { Modal, ErrorBox, JobBadge, ItemChain } from './ui';
+import { Job, User, fmtDate, toDateInput, todayInput } from '../types';
+import { Modal, ErrorBox, JobBadge } from './ui';
 
-export default function Jobs({ me, refreshKey, onOpenJob }: { me: User; refreshKey: number; onOpenJob: (id: number) => void }) {
+export default function Jobs({ me, users, refreshKey, onOpenJob }: {
+  me: User; users: User[]; refreshKey: number; onOpenJob: (id: number) => void;
+}) {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [showArchive, setShowArchive] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
+  const [archiveJob, setArchiveJob] = useState<Job | null>(null);
+  const [error, setError] = useState('');
   const isAdmin = me.role === 'admin';
 
-  async function load() {
-    setJobs(await api.get<Job[]>(`/jobs?archived=${showArchive}`));
+  const load = useCallback(async () => {
+    try {
+      setJobs(await api.get<Job[]>(`/jobs?archived=${showArchive}`));
+      setError('');
+    } catch (e: any) { setError(e.message); }
+  }, [showArchive]);
+
+  useEffect(() => { load(); }, [load, refreshKey]);
+
+  async function restore(job: Job) {
+    if (!confirm(`Vratiti "${job.name}" iz arhive?`)) return;
+    try {
+      await api.put(`/jobs/${job.id}/archive`, { archived: false });
+      load();
+    } catch (e: any) { setError(e.message); }
   }
-  useEffect(() => { load(); }, [refreshKey, showArchive]);
 
   return (
     <div>
+      {/* Aktivne / Arhiva — arhivu vodi administrator */}
       {isAdmin && (
-        <div className="btn-row" style={{ marginTop: 0, marginBottom: 12 }}>
-          <button className="btn btn-primary" style={{ flex: 1 }} onClick={() => setShowCreate(true)}>
-            + Nova bauštela
-          </button>
-          <button className="btn btn-ghost" onClick={() => setShowArchive(!showArchive)}>
-            {showArchive ? '← Aktivne' : 'Arhiva'}
-          </button>
+        <div className="subtabs">
+          <button className={showArchive ? '' : 'active'} onClick={() => setShowArchive(false)}>Aktivne</button>
+          <button className={showArchive ? 'active' : ''} onClick={() => setShowArchive(true)}>Arhiva</button>
         </div>
       )}
+
+      {isAdmin && !showArchive && (
+        <button className="btn btn-primary btn-block" onClick={() => setShowCreate(true)}>
+          + Nova bauštela
+        </button>
+      )}
+
+      <ErrorBox msg={error} />
 
       {jobs.length === 0 && (
         <div className="empty">
@@ -38,8 +59,8 @@ export default function Jobs({ me, refreshKey, onOpenJob }: { me: User; refreshK
       )}
 
       {jobs.map((j) => (
-        <div key={j.id} className="card clickable" onClick={() => onOpenJob(j.id)} role="button">
-          <div className="spread">
+        <div key={j.id} className="card">
+          <div className="spread clickable" onClick={() => onOpenJob(j.id)} role="button">
             <div>
               <h3>{j.name}</h3>
               <div className="muted">
@@ -50,14 +71,37 @@ export default function Jobs({ me, refreshKey, onOpenJob }: { me: User; refreshK
             </div>
             <JobBadge status={j.status} />
           </div>
-          <div className="row" style={{ marginTop: 8 }}>
-            {j.items.map((it) => (
-              <span key={it.id} className="chip">{ITEM_LABEL[it.type]}</span>
-            ))}
-          </div>
-          {j.items.map((it) => (
-            <ItemChain key={it.id} status={it.status} location={it.location} site={it.site_status} />
-          ))}
+
+          {showArchive ? (
+            <div className="row" style={{ marginTop: 8 }}>
+              <span className="chip">📅 {j.archived_date ? fmtDate(j.archived_date) : 'datum nije upisan'}</span>
+              {j.archive_workers.length > 0
+                ? j.archive_workers.map((w) => (
+                    <span key={w.user_id} className="badge b-purple">{w.full_name}</span>
+                  ))
+                : <span className="chip">majstori nisu upisani</span>}
+            </div>
+          ) : (
+            ((j.done_count || 0) > 0 || (j.todo_count || 0) > 0) && (
+              <div className="row" style={{ marginTop: 8 }}>
+                {!!j.done_count && <span className="badge b-green">✔ {j.done_count} odrađeno</span>}
+                {!!j.todo_count && <span className="badge b-amber">◻ {j.todo_count} za odradit</span>}
+              </div>
+            )
+          )}
+
+          {isAdmin && (
+            <div className="btn-row">
+              {showArchive ? (
+                <>
+                  <button className="btn btn-sm btn-ghost" onClick={() => setArchiveJob(j)}>Uredi podatke arhive</button>
+                  <button className="btn btn-sm btn-ghost" onClick={() => restore(j)}>Vrati iz arhive</button>
+                </>
+              ) : (
+                <button className="btn btn-sm btn-ghost" onClick={() => setArchiveJob(j)}>Arhiviraj</button>
+              )}
+            </div>
+          )}
         </div>
       ))}
 
@@ -67,7 +111,75 @@ export default function Jobs({ me, refreshKey, onOpenJob }: { me: User; refreshK
           onCreated={(id) => { setShowCreate(false); load(); onOpenJob(id); }}
         />
       )}
+      {archiveJob && (
+        <ArchiveModal
+          job={archiveJob}
+          users={users}
+          onClose={() => setArchiveJob(null)}
+          onDone={() => { setArchiveJob(null); load(); }}
+        />
+      )}
     </div>
+  );
+}
+
+// =====================================================
+// Arhiviranje: administrator upisuje majstore (može ih biti više) i datum
+// =====================================================
+function ArchiveModal({ job, users, onClose, onDone }: {
+  job: Job; users: User[]; onClose: () => void; onDone: () => void;
+}) {
+  const [selected, setSelected] = useState<number[]>(job.archive_workers.map((w) => w.user_id));
+  const [date, setDate] = useState(job.archived_date ? toDateInput(job.archived_date) : todayInput());
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const isEdit = job.archived;
+  const candidates = users.filter((u) => u.active !== false);
+
+  function toggle(id: number) {
+    setSelected(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id]);
+  }
+
+  async function submit() {
+    setBusy(true);
+    setError('');
+    try {
+      await api.put(`/jobs/${job.id}/archive`, {
+        archived: true,
+        archived_date: date || null,
+        worker_ids: selected,
+      });
+      onDone();
+    } catch (e: any) {
+      setError(e.message);
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal title={isEdit ? `Arhiva: ${job.name}` : `Arhiviraj: ${job.name}`} onClose={onClose}>
+      <ErrorBox msg={error} />
+
+      <div className="field">
+        <label>Ime majstora {selected.length > 0 && `(${selected.length})`}</label>
+        {candidates.map((u) => (
+          <label key={u.id} className="checkline">
+            <input type="checkbox" checked={selected.includes(u.id)} onChange={() => toggle(u.id)} />
+            {u.full_name} <span className="chip">{u.role}</span>
+          </label>
+        ))}
+        {candidates.length === 0 && <div className="muted">Nema korisnika.</div>}
+      </div>
+
+      <div className="field">
+        <label>Datum</label>
+        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+      </div>
+
+      <button className="btn btn-primary btn-block" onClick={submit} disabled={busy}>
+        {busy ? 'Spremanje…' : isEdit ? 'Spremi promjene' : 'Arhiviraj bauštelu'}
+      </button>
+    </Modal>
   );
 }
 
@@ -76,23 +188,16 @@ function CreateJobModal({ onClose, onCreated }: { onClose: () => void; onCreated
   const [address, setAddress] = useState('');
   const [note, setNote] = useState('');
   const [plannedDate, setPlannedDate] = useState('');
-  const [items, setItems] = useState<Record<ItemType, boolean>>({ profili: true, staklo: true, spideri: false });
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-
-  function toggle(t: ItemType) {
-    setItems({ ...items, [t]: !items[t] });
-  }
 
   async function submit() {
     if (!name.trim()) { setError('Ime bauštele je obavezno.'); return; }
     setBusy(true);
     try {
-      const selected = (Object.keys(items) as ItemType[]).filter((t) => items[t]);
       const job = await api.post<Job>('/jobs', {
         name, address, note,
         planned_date: plannedDate || null,
-        items: selected,
       });
       onCreated(job.id);
     } catch (e: any) {
@@ -118,15 +223,6 @@ function CreateJobModal({ onClose, onCreated }: { onClose: () => void; onCreated
         <div className="muted" style={{ marginTop: 4 }}>
           3 dana prije datuma automatski se kreira podsjetnik u to-do listi.
         </div>
-      </div>
-      <div className="field">
-        <label>Što je potrebno (staklene ograde)</label>
-        {(['profili', 'staklo', 'spideri'] as ItemType[]).map((t) => (
-          <label key={t} className="checkline">
-            <input type="checkbox" checked={items[t]} onChange={() => toggle(t)} />
-            {ITEM_LABEL[t]}
-          </label>
-        ))}
       </div>
       <div className="field">
         <label>Napomena</label>

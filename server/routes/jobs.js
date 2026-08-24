@@ -29,12 +29,8 @@ const upload = multer({
       : cb(new Error('Dozvoljene su samo fotografije.')),
 });
 
-// ---- Rječnici (za obavijesti) ----
-const ITEM_LABEL = { profili: 'Profili', staklo: 'Staklo', spideri: 'Spideri' };
-const ITEM_STATUS_LABEL = { naruceno: 'Naručeno', u_izradi: 'U izradi', spremno_za_montazu: 'Spremno za montažu' };
-const LOCATION_LABEL = { ispred_firme: 'Ispred firme', caporice: 'Skladište Čaporice', nedo: 'Skladište Nedo', na_gradilistu: 'Na gradilištu' };
-const SITE_LABEL = { na_gradilistu: 'Na gradilištu', namontirano: 'Namontirano', zavrseno: 'Završeno' };
 const JOB_STATUS_LABEL = { u_pripremi: 'U pripremi', spremno_za_montazu: 'Spremno za montažu', u_tijeku: 'U tijeku', zavrseno: 'Završeno' };
+const WORK_KIND_LABEL = { odradeno: 'Odrađeno', za_odraditi: 'Za odraditi' };
 
 function canSeeJob(user, job) {
   // Admini vide sve; majstori i vozači vide bauštele od "spremno za montažu" nadalje
@@ -42,10 +38,72 @@ function canSeeJob(user, job) {
   return job.status !== 'u_pripremi';
 }
 
+/** Tijek rade smiju upisivati majstori i administrator; vozači samo čitaju. */
+function canLogWork(user) {
+  return user.role !== 'vozac';
+}
+
+function toDate(value) {
+  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null;
+}
+
+/** Lista id-eva korisnika iz tijela zahtjeva. */
+function userIdList(raw) {
+  const ids = (Array.isArray(raw) ? raw : []).map(Number).filter((n) => Number.isInteger(n) && n > 0);
+  return [...new Set(ids)];
+}
+
+/** Majstori upisani na arhiviranu bauštelu. */
+async function archiveWorkers(jobIds) {
+  if (jobIds.length === 0) return new Map();
+  const rows = await q(
+    `SELECT w.job_id, w.user_id, u.full_name FROM job_archive_workers w
+       JOIN users u ON u.id = w.user_id
+      WHERE w.job_id = ANY($1::int[]) ORDER BY u.full_name`,
+    [jobIds]
+  );
+  const map = new Map();
+  for (const r of rows) {
+    if (!map.has(r.job_id)) map.set(r.job_id, []);
+    map.get(r.job_id).push({ user_id: r.user_id, full_name: r.full_name });
+  }
+  return map;
+}
+
+/** Zapisi tijeka rade s majstorima koji su bili. */
+async function workLogs(jobId) {
+  const logs = await q(
+    `SELECT l.*, u.full_name AS created_by_name, d.full_name AS done_by_name
+       FROM job_work_logs l
+       JOIN users u ON u.id = l.created_by
+       LEFT JOIN users d ON d.id = l.done_by
+      WHERE l.job_id = $1
+      ORDER BY l.done, COALESCE(l.work_date, l.created_at::date) DESC, l.id DESC`,
+    [jobId]
+  );
+  if (logs.length === 0) return [];
+  const rows = await q(
+    `SELECT w.log_id, w.user_id, u.full_name FROM job_work_log_workers w
+       JOIN users u ON u.id = w.user_id
+      WHERE w.log_id = ANY($1::int[]) ORDER BY u.full_name`,
+    [logs.map((l) => l.id)]
+  );
+  const map = new Map();
+  for (const r of rows) {
+    if (!map.has(r.log_id)) map.set(r.log_id, []);
+    map.get(r.log_id).push({ user_id: r.user_id, full_name: r.full_name });
+  }
+  return logs.map((l) => ({ ...l, workers: map.get(l.id) || [] }));
+}
+
 async function loadJob(id) {
-  const job = await one('SELECT j.*, u.full_name AS creator_name FROM jobs j JOIN users u ON u.id = j.created_by WHERE j.id = $1', [id]);
+  const job = await one(
+    'SELECT j.*, u.full_name AS creator_name FROM jobs j JOIN users u ON u.id = j.created_by WHERE j.id = $1',
+    [id]
+  );
   if (!job) return null;
-  job.items = await q('SELECT * FROM job_items WHERE job_id = $1 ORDER BY id', [id]);
+  job.work_logs = await workLogs(id);
+  job.archive_workers = (await archiveWorkers([id])).get(id) || [];
   return job;
 }
 
@@ -54,16 +112,16 @@ router.get('/jobs', async (req, res) => {
   const archived = req.query.archived === 'true';
   let rows = await q(
     `SELECT j.*, u.full_name AS creator_name,
-       (SELECT json_agg(json_build_object('id', i.id, 'type', i.type, 'status', i.status,
-                'location', i.location, 'site_status', i.site_status) ORDER BY i.id)
-        FROM job_items i WHERE i.job_id = j.id) AS items
+       (SELECT count(*)::int FROM job_work_logs l WHERE l.job_id = j.id AND l.kind = 'odradeno') AS done_count,
+       (SELECT count(*)::int FROM job_work_logs l WHERE l.job_id = j.id AND l.kind = 'za_odraditi' AND l.done = FALSE) AS todo_count
      FROM jobs j JOIN users u ON u.id = j.created_by
      WHERE j.archived = $1
-     ORDER BY (j.status = 'zavrseno'), j.updated_at DESC`,
+     ORDER BY (j.status = 'zavrseno'), COALESCE(j.archived_date, j.updated_at::date) DESC, j.updated_at DESC`,
     [archived]
   );
   if (req.user.role !== 'admin') rows = rows.filter((j) => canSeeJob(req.user, j));
-  res.json(rows.map((j) => ({ ...j, items: j.items || [] })));
+  const workers = await archiveWorkers(rows.map((j) => j.id));
+  res.json(rows.map((j) => ({ ...j, archive_workers: workers.get(j.id) || [] })));
 });
 
 // ---- Detalj bauštele s događajima ----
@@ -81,17 +139,13 @@ router.get('/jobs/:id', async (req, res) => {
 
 // ---- Kreiranje bauštele (admin) ----
 router.post('/jobs', requireAdmin, async (req, res) => {
-  const { name, address = '', note = '', category = 'staklene_ograde', planned_date = null, items = [] } = req.body || {};
+  const { name, address = '', note = '', category = 'staklene_ograde', planned_date = null } = req.body || {};
   if (!name?.trim()) return res.status(400).json({ error: 'Ime bauštele je obavezno.' });
-  const validItems = items.filter((t) => ITEM_LABEL[t]);
   const job = await one(
     `INSERT INTO jobs (name, address, note, category, planned_date, created_by)
      VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
     [name.trim(), address, note, category, planned_date || null, req.user.id]
   );
-  for (const t of validItems) {
-    await q('INSERT INTO job_items (job_id, type) VALUES ($1,$2)', [job.id, t]);
-  }
   const admins = await userIds(['admin']);
   await notify({
     recipients: admins,
@@ -120,6 +174,33 @@ router.put('/jobs/:id', requireAdmin, async (req, res) => {
   res.json(await loadJob(id));
 });
 
+// ---- Arhiviranje (admin): majstori koji su radili + datum ----
+router.put('/jobs/:id/archive', requireAdmin, async (req, res) => {
+  const id = Number(req.params.id);
+  const job = await one('SELECT * FROM jobs WHERE id = $1', [id]);
+  if (!job) return res.status(404).json({ error: 'Bauštela ne postoji.' });
+
+  const { archived = true, archived_date = null, worker_ids } = req.body || {};
+  if (archived_date && !toDate(archived_date)) return res.status(400).json({ error: 'Neispravan datum.' });
+
+  if (worker_ids !== undefined) {
+    const ids = userIdList(worker_ids);
+    const people = await q('SELECT id FROM users WHERE id = ANY($1::int[])', [ids]);
+    if (people.length !== ids.length) return res.status(404).json({ error: 'Neki od odabranih majstora ne postoje.' });
+    await q('DELETE FROM job_archive_workers WHERE job_id = $1', [id]);
+    for (const uid of ids) {
+      await q('INSERT INTO job_archive_workers (job_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [id, uid]);
+    }
+  }
+
+  await q('UPDATE jobs SET archived = $1, archived_date = $2, updated_at = now() WHERE id = $3', [
+    archived === true,
+    archived_date || (archived === true ? job.archived_date : null),
+    id,
+  ]);
+  res.json(await loadJob(id));
+});
+
 // ---- Status cijele bauštele (admin) ----
 router.put('/jobs/:id/status', requireAdmin, async (req, res) => {
   const id = Number(req.params.id);
@@ -141,135 +222,105 @@ router.put('/jobs/:id/status', requireAdmin, async (req, res) => {
     actorId: req.user.id,
     type: 'job_status',
     title: `Bauštela "${job.name}": ${JOB_STATUS_LABEL[status]}`,
-    body: status === 'spremno_za_montazu' ? 'Materijali su spremni za montažu.' : '',
+    body: status === 'spremno_za_montazu' ? 'Bauštela je spremna za montažu.' : '',
     refType: 'job',
     refId: id,
   });
   res.json(await loadJob(id));
 });
 
-// ---- Dodavanje / brisanje stavki (admin) ----
-router.post('/jobs/:id/items', requireAdmin, async (req, res) => {
-  const id = Number(req.params.id);
-  const { type } = req.body || {};
-  if (!ITEM_LABEL[type]) return res.status(400).json({ error: 'Nepoznata vrsta stavke.' });
-  await q('INSERT INTO job_items (job_id, type) VALUES ($1,$2)', [id, type]);
-  res.json(await loadJob(id));
-});
-
-router.delete('/jobs/:id/items/:itemId', requireAdmin, async (req, res) => {
-  await q('DELETE FROM job_items WHERE id = $1 AND job_id = $2', [Number(req.params.itemId), Number(req.params.id)]);
-  res.json(await loadJob(Number(req.params.id)));
-});
-
-// ---- Status pripreme stavke (admin): naruceno / u_izradi / spremno_za_montazu ----
-router.put('/jobs/:id/items/:itemId/status', requireAdmin, async (req, res) => {
+// =====================================================
+// TIJEK RADE — što je odrađeno / što se mora odraditi
+// Upisuju majstori i administrator; sva polja su opcionalna.
+// =====================================================
+router.post('/jobs/:id/work-logs', async (req, res) => {
   const jobId = Number(req.params.id);
-  const itemId = Number(req.params.itemId);
-  const { status, comment = '' } = req.body || {};
-  if (!ITEM_STATUS_LABEL[status]) return res.status(400).json({ error: 'Nepoznat status.' });
+  const { kind, work_date = null, body = '', worker_ids = [] } = req.body || {};
+  if (!WORK_KIND_LABEL[kind]) return res.status(400).json({ error: 'Nepoznata vrsta zapisa.' });
+
   const job = await one('SELECT * FROM jobs WHERE id = $1', [jobId]);
-  const item = await one('SELECT * FROM job_items WHERE id = $1 AND job_id = $2', [itemId, jobId]);
-  if (!job || !item) return res.status(404).json({ error: 'Stavka ne postoji.' });
+  if (!job) return res.status(404).json({ error: 'Bauštela ne postoji.' });
+  if (!canSeeJob(req.user, job)) return res.status(403).json({ error: 'Bauštela još nije spremna za montažu.' });
+  if (!canLogWork(req.user)) return res.status(403).json({ error: 'Tijek rade upisuju majstori ili administrator.' });
 
-  await q('UPDATE job_items SET status = $1, updated_at = now() WHERE id = $2', [status, itemId]);
-  await q('UPDATE jobs SET updated_at = now() WHERE id = $1', [jobId]);
-  await q(
-    `INSERT INTO job_events (job_id, item_id, user_id, kind, body) VALUES ($1,$2,$3,'status',$4)`,
-    [jobId, itemId, req.user.id,
-     `${ITEM_LABEL[item.type]}: ${ITEM_STATUS_LABEL[status]}${comment ? ' — ' + comment : ''}`]
-  );
+  const date = work_date ? toDate(work_date) : null;
+  if (work_date && !date) return res.status(400).json({ error: 'Neispravan datum.' });
 
-  // Ako su SVE stavke spremne za montažu, automatski podigni status bauštele + obavijesti sve
-  const items = await q('SELECT * FROM job_items WHERE job_id = $1', [jobId]);
-  const allReady = items.length > 0 && items.every((i) => i.status === 'spremno_za_montazu');
-  if (allReady && job.status === 'u_pripremi') {
-    await q(`UPDATE jobs SET status = 'spremno_za_montazu', updated_at = now() WHERE id = $1`, [jobId]);
-    await notify({
-      recipients: await userIds(['admin', 'majstor', 'vozac']),
-      actorId: req.user.id,
-      type: 'job_status',
-      title: `Bauštela "${job.name}": Spremno za montažu`,
-      body: 'Sve stavke su spremne.',
-      refType: 'job',
-      refId: jobId,
-    });
-  } else {
-    await notify({
-      recipients: await userIds(['admin']),
-      actorId: req.user.id,
-      type: 'item_status',
-      title: `"${job.name}" — ${ITEM_LABEL[item.type]}: ${ITEM_STATUS_LABEL[status]}`,
-      body: comment,
-      refType: 'job',
-      refId: jobId,
-    });
+  const ids = userIdList(worker_ids);
+  if (ids.length > 0) {
+    const people = await q('SELECT id FROM users WHERE id = ANY($1::int[])', [ids]);
+    if (people.length !== ids.length) return res.status(404).json({ error: 'Neki od odabranih majstora ne postoje.' });
   }
-  res.json(await loadJob(jobId));
-});
 
-// ---- Transport lokacija stavke (vozač / majstor / admin) + fotka + komentar ----
-router.put('/jobs/:id/items/:itemId/location', upload.single('photo'), async (req, res) => {
-  const jobId = Number(req.params.id);
-  const itemId = Number(req.params.itemId);
-  const { location, comment = '' } = req.body || {};
-  if (!LOCATION_LABEL[location]) return res.status(400).json({ error: 'Nepoznata lokacija.' });
-  const job = await one('SELECT * FROM jobs WHERE id = $1', [jobId]);
-  const item = await one('SELECT * FROM job_items WHERE id = $1 AND job_id = $2', [itemId, jobId]);
-  if (!job || !item) return res.status(404).json({ error: 'Stavka ne postoji.' });
-  if (!canSeeJob(req.user, job)) return res.status(403).json({ error: 'Bauštela još nije spremna za montažu.' });
+  const text = String(body).trim();
+  if (!text && ids.length === 0 && !date) {
+    return res.status(400).json({ error: 'Upišite barem komentar, majstora ili datum.' });
+  }
 
-  const siteStatus = location === 'na_gradilistu' ? 'na_gradilistu' : null;
-  await q('UPDATE job_items SET location = $1, site_status = COALESCE($2, site_status), updated_at = now() WHERE id = $3',
-    [location, siteStatus, itemId]);
-  await q('UPDATE jobs SET updated_at = now() WHERE id = $1', [jobId]);
-  const photoPath = req.file ? `/uploads/${req.file.filename}` : null;
-  await q(
-    `INSERT INTO job_events (job_id, item_id, user_id, kind, body, photo_path) VALUES ($1,$2,$3,'transport',$4,$5)`,
-    [jobId, itemId, req.user.id,
-     `${ITEM_LABEL[item.type]} → ${LOCATION_LABEL[location]}${comment ? ' — ' + comment : ''}`, photoPath]
+  const log = await one(
+    `INSERT INTO job_work_logs (job_id, kind, work_date, body, created_by) VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+    [jobId, kind, date, text, req.user.id]
   );
-  await notify({
-    recipients: await userIds(),
-    actorId: req.user.id,
-    type: 'transport',
-    title: `"${job.name}": ${ITEM_LABEL[item.type]} → ${LOCATION_LABEL[location]}`,
-    body: `${req.user.full_name}${comment ? ' — ' + comment : ''}`,
-    refType: 'job',
-    refId: jobId,
-  });
-  res.json(await loadJob(jobId));
-});
-
-// ---- Status na gradilištu (majstor / admin) ----
-router.put('/jobs/:id/items/:itemId/site-status', async (req, res) => {
-  const jobId = Number(req.params.id);
-  const itemId = Number(req.params.itemId);
-  const { site_status, comment = '' } = req.body || {};
-  if (!SITE_LABEL[site_status]) return res.status(400).json({ error: 'Nepoznat status.' });
-  if (req.user.role === 'vozac')
-    return res.status(403).json({ error: 'Status montaže mijenjaju majstori ili admin.' });
-  const job = await one('SELECT * FROM jobs WHERE id = $1', [jobId]);
-  const item = await one('SELECT * FROM job_items WHERE id = $1 AND job_id = $2', [itemId, jobId]);
-  if (!job || !item) return res.status(404).json({ error: 'Stavka ne postoji.' });
-  if (!canSeeJob(req.user, job)) return res.status(403).json({ error: 'Bauštela još nije spremna za montažu.' });
-
-  await q('UPDATE job_items SET site_status = $1, updated_at = now() WHERE id = $2', [site_status, itemId]);
+  for (const uid of ids) {
+    await q('INSERT INTO job_work_log_workers (log_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [log.id, uid]);
+  }
   await q('UPDATE jobs SET updated_at = now() WHERE id = $1', [jobId]);
-  await q(
-    `INSERT INTO job_events (job_id, item_id, user_id, kind, body) VALUES ($1,$2,$3,'status',$4)`,
-    [jobId, itemId, req.user.id,
-     `${ITEM_LABEL[item.type]}: ${SITE_LABEL[site_status]}${comment ? ' — ' + comment : ''}`]
-  );
+
   await notify({
     recipients: await userIds(['admin']),
     actorId: req.user.id,
-    type: 'site_status',
-    title: `"${job.name}" — ${ITEM_LABEL[item.type]}: ${SITE_LABEL[site_status]}`,
-    body: `${req.user.full_name}${comment ? ' — ' + comment : ''}`,
+    type: 'job_tijek',
+    title: `"${job.name}": ${WORK_KIND_LABEL[kind]}`,
+    body: `${req.user.full_name}${text ? ' — ' + text.slice(0, 100) : ''}`,
     refType: 'job',
     refId: jobId,
   });
+  res.status(201).json(await loadJob(jobId));
+});
+
+// ---- Izmjena zapisa: kvačica "odrađeno" ili uređivanje teksta/datuma ----
+router.put('/jobs/:id/work-logs/:logId', async (req, res) => {
+  const jobId = Number(req.params.id);
+  const logId = Number(req.params.logId);
+  const log = await one('SELECT * FROM job_work_logs WHERE id = $1 AND job_id = $2', [logId, jobId]);
+  if (!log) return res.status(404).json({ error: 'Zapis ne postoji.' });
+  if (!canLogWork(req.user)) return res.status(403).json({ error: 'Tijek rade upisuju majstori ili administrator.' });
+
+  const { done, body, work_date } = req.body || {};
+  if (work_date !== undefined && work_date !== null && work_date !== '' && !toDate(work_date)) {
+    return res.status(400).json({ error: 'Neispravan datum.' });
+  }
+  const nextDone = typeof done === 'boolean' ? done : log.done;
+
+  await q(
+    `UPDATE job_work_logs
+        SET body = $1,
+            work_date = $2,
+            done = $3::boolean,
+            done_by = CASE WHEN $3::boolean THEN $4::int ELSE NULL END,
+            done_at = CASE WHEN $3::boolean THEN COALESCE(done_at, now()) ELSE NULL END
+      WHERE id = $5`,
+    [
+      body === undefined ? log.body : String(body).trim(),
+      work_date === undefined ? log.work_date : work_date || null,
+      nextDone,
+      req.user.id,
+      logId,
+    ]
+  );
+  await q('UPDATE jobs SET updated_at = now() WHERE id = $1', [jobId]);
+  res.json(await loadJob(jobId));
+});
+
+router.delete('/jobs/:id/work-logs/:logId', async (req, res) => {
+  const jobId = Number(req.params.id);
+  const log = await one('SELECT * FROM job_work_logs WHERE id = $1 AND job_id = $2', [Number(req.params.logId), jobId]);
+  if (!log) return res.status(404).json({ error: 'Zapis ne postoji.' });
+  // Briše administrator ili onaj tko je zapis unio
+  if (req.user.role !== 'admin' && log.created_by !== req.user.id) {
+    return res.status(403).json({ error: 'Zapis može obrisati administrator ili onaj tko ga je unio.' });
+  }
+  await q('DELETE FROM job_work_logs WHERE id = $1', [log.id]);
   res.json(await loadJob(jobId));
 });
 
