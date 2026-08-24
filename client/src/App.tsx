@@ -7,11 +7,13 @@ import Jobs from './components/Jobs';
 import JobDetail from './components/JobDetail';
 import Users from './components/Users';
 import Vehicles from './components/Vehicles';
+import Painting from './components/Painting';
+import Orders from './components/Orders';
 import Settings from './components/Settings';
 import NotificationsPanel from './components/Notifications';
 import { resyncPushSubscription } from './push';
 
-type Tab = 'zadaci' | 'baustele' | 'korisnici' | 'vozila' | 'postavke';
+type Tab = 'zadaci' | 'baustele' | 'korisnici' | 'vozila' | 'farbanje' | 'narudzbe' | 'postavke';
 
 export default function App() {
   const [me, setMe] = useState<User | null>(() => (getToken() ? getStoredUser<User>() : null));
@@ -100,6 +102,9 @@ export default function App() {
     ...(isAdmin ? [{ key: 'korisnici' as Tab, label: 'Korisnici' }] : []),
     // Vozila su dostupna svim ulogama — svatko može prijaviti kvar
     { key: 'vozila', label: 'Vozila' },
+    { key: 'farbanje', label: 'Farbanje' },
+    // Narudžbe i dobavljači su samo za administratore
+    ...(isAdmin ? [{ key: 'narudzbe' as Tab, label: 'Narudžbe' }] : []),
     { key: 'postavke', label: 'Postavke' },
   ];
 
@@ -140,6 +145,8 @@ export default function App() {
         )}
         {tab === 'korisnici' && isAdmin && <Users users={users} onChanged={bump} />}
         {tab === 'vozila' && <Vehicles me={me} vehicles={vehicles} onChanged={bump} />}
+        {tab === 'farbanje' && <Painting me={me} users={users} />}
+        {tab === 'narudzbe' && isAdmin && <Orders />}
         {tab === 'postavke' && <Settings me={me} users={users} />}
       </main>
 

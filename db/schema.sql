@@ -182,3 +182,81 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user ON push_subscriptions(user_id);
+
+-- ============ FARBANJE ============
+-- Evidenciju vodi administrator; svi je mogu pogledati.
+-- Mjesta farbanja su u tablici da ih administrator može dodavati.
+CREATE TABLE IF NOT EXISTS painting_locations (
+  id         SERIAL PRIMARY KEY,
+  name       TEXT NOT NULL UNIQUE,
+  active     BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Početna mjesta samo dok je tablica prazna (da se obrisano ne vraća pri restartu)
+INSERT INTO painting_locations (name)
+SELECT v.name FROM (VALUES ('Nova bila'), ('Herkam')) AS v(name)
+WHERE NOT EXISTS (SELECT 1 FROM painting_locations);
+
+CREATE TABLE IF NOT EXISTS painting_entries (
+  id          SERIAL PRIMARY KEY,
+  entry_date  DATE NOT NULL,
+  driver_id   INTEGER REFERENCES users(id) ON DELETE SET NULL,  -- vozač koji je odvezao
+  location_id INTEGER NOT NULL REFERENCES painting_locations(id),
+  note        TEXT DEFAULT '',
+  created_by  INTEGER NOT NULL REFERENCES users(id),
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_painting_entries ON painting_entries(entry_date DESC, id DESC);
+
+-- Artikli za farbanje; done = ofarbano (u evidenciji se prikazuje zeleno)
+CREATE TABLE IF NOT EXISTS painting_items (
+  id       SERIAL PRIMARY KEY,
+  entry_id INTEGER NOT NULL REFERENCES painting_entries(id) ON DELETE CASCADE,
+  name     TEXT NOT NULL,
+  done     BOOLEAN NOT NULL DEFAULT FALSE,
+  done_by  INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  done_at  TIMESTAMPTZ,
+  sort_order INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_painting_items ON painting_items(entry_id, sort_order, id);
+
+-- ============ NARUDŽBE (samo administratori) ============
+CREATE TABLE IF NOT EXISTS suppliers (
+  id         SERIAL PRIMARY KEY,
+  name       TEXT NOT NULL UNIQUE,
+  note       TEXT DEFAULT '',
+  active     BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Početni dobavljači samo dok je tablica prazna
+INSERT INTO suppliers (name)
+SELECT v.name FROM (VALUES ('REHAU'), ('FEAL'), ('Emerus'), ('Kristal')) AS v(name)
+WHERE NOT EXISTS (SELECT 1 FROM suppliers);
+
+CREATE TABLE IF NOT EXISTS orders (
+  id          SERIAL PRIMARY KEY,
+  supplier_id INTEGER NOT NULL REFERENCES suppliers(id) ON DELETE CASCADE,
+  order_date  DATE NOT NULL,
+  due_date    DATE,                    -- rok isporuke (opcionalno)
+  note        TEXT DEFAULT '',
+  created_by  INTEGER NOT NULL REFERENCES users(id),
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_orders_supplier ON orders(supplier_id, order_date DESC, id DESC);
+
+-- Artikli narudžbe; done = zaprimljeno (u evidenciji se prikazuje zeleno)
+CREATE TABLE IF NOT EXISTS order_items (
+  id       SERIAL PRIMARY KEY,
+  order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+  name     TEXT NOT NULL,
+  quantity TEXT NOT NULL DEFAULT '',   -- slobodan tekst: "5 kom", "12 m"
+  done     BOOLEAN NOT NULL DEFAULT FALSE,
+  done_by  INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  done_at  TIMESTAMPTZ,
+  sort_order INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_order_items ON order_items(order_id, sort_order, id);

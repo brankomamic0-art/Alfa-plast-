@@ -24,6 +24,26 @@ Web aplikacija (mobilna + desktop, responsive) za praćenje bauštela, materijal
 - Status materijala: **Na gradilištu → Namontirano → Završeno**
 - Dnevni napredak, napomena za sljedeću ekipu, fotografije rada, prijava problema s fotkom
 
+**Vozila (vozni park)**
+- Vozila su vidljiva svim ulogama; **kvar može prijaviti bilo koja uloga**, a na istom vozilu može biti **više otvorenih kvarova** istovremeno
+- Status vozila je izveden: **U kvaru** dok postoji ijedna neriješena prijava; kvar rješava administrator (prijavitelj dobiva obavijest)
+- Klikom na **karticu vozila** otvara se detalj s kvarovima i servisnom poviješću (ne kroz "Uredi")
+- Servisnu povijest upisuje samo administrator: **izmjena ulja, registracija, periodični tehnički pregled**
+- **Izmjenu ulja vide sve uloge** (datum, kilometraža i **kilometraža iduće izmjene**); registracija i tehnički su **privatni — vidi ih samo administrator**
+
+**Farbanje**
+- Administrator vodi evidenciju artikala za farbanje; evidencije su vidljive svim ulogama
+- Atributi evidencije: **vozač, datum, mjesto farbanja** i popis **artikala**
+- Mjesta farbanja su u bazi (početno **Nova bila** i **Herkam**) — administrator ih može dodavati; mjesto koje se već koristi se deaktivira umjesto brisanja
+- **Kvačica po artiklu** označava da je ofarbano — artikl u evidenciji postaje zelen; kvačicu smiju staviti administrator i vozač s te evidencije
+- **Pretraga po datumu (raspon), mjestu farbanja i nazivu artikla**
+
+**Narudžbe (samo administratori)**
+- Ulaz su **kartice dobavljača** (početno **REHAU, FEAL, Emerus, Kristal**) — administrator ih može dodavati
+- **Klikom na karticu** ulazi se u dobavljača, gdje se kreira narudžba: **datum, artikli (naziv + količina), rok isporuke (opcionalno)**
+- **Kvačica po artiklu** = zaprimljeno, artikl postaje zelen; rok isporuke se boji kad se bliži ili je probijen
+- **Pretraživanje po artiklu** — unutar dobavljača i kroz sve dobavljače odjednom
+
 **Admin override** — admin može promijeniti bilo koji status (npr. spideri koje dostavlja vanjska firma).
 
 **Obavijesti**
@@ -38,7 +58,7 @@ Web aplikacija (mobilna + desktop, responsive) za praćenje bauštela, materijal
 ├── server/              # Express API (Node 20+, ESM)
 │   ├── index.js         # ulaz + scheduler podsjetnika
 │   ├── seed.js          # početni korisnici
-│   └── routes/          # users, tasks, jobs, notifications
+│   └── routes/          # users, tasks, jobs, notifications, vehicles, painting, orders
 ├── client/              # React + Vite + TypeScript
 └── Dockerfile           # build za Railway
 ```

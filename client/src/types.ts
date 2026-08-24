@@ -90,6 +90,77 @@ export interface VehicleDetail extends Vehicle {
   service: VehicleServiceRecord[];
 }
 
+// ---------- Farbanje ----------
+export interface PaintingLocation {
+  id: number;
+  name: string;
+  active: boolean;
+  entry_count?: number;
+}
+
+export interface PaintingItem {
+  id: number;
+  entry_id: number;
+  name: string;
+  done: boolean;
+  done_at: string | null;
+  done_by_name: string | null;
+  sort_order: number;
+}
+
+export interface PaintingEntry {
+  id: number;
+  entry_date: string;
+  driver_id: number | null;
+  location_id: number;
+  note: string;
+  created_at: string;
+  updated_at: string;
+  location_name: string;
+  driver_name: string | null;
+  created_by_name: string;
+  item_count: number;
+  done_count: number;
+  items: PaintingItem[];
+}
+
+// ---------- Narudžbe ----------
+export interface Supplier {
+  id: number;
+  name: string;
+  note: string;
+  active: boolean;
+  order_count?: number;
+  open_items?: number;
+  last_order_date?: string | null;
+}
+
+export interface OrderItem {
+  id: number;
+  order_id: number;
+  name: string;
+  quantity: string;
+  done: boolean;
+  done_at: string | null;
+  done_by_name: string | null;
+  sort_order: number;
+}
+
+export interface Order {
+  id: number;
+  supplier_id: number;
+  order_date: string;
+  due_date: string | null;
+  note: string;
+  created_at: string;
+  updated_at: string;
+  supplier_name: string;
+  created_by_name: string;
+  item_count: number;
+  done_count: number;
+  items: OrderItem[];
+}
+
 export interface TaskComment {
   id: number;
   task_id: number;
@@ -203,6 +274,22 @@ export const JOB_STATUS_LABEL: Record<JobStatus, string> = {
 export function fmtDate(d: string | null | undefined): string {
   if (!d) return '';
   return new Date(d).toLocaleDateString('hr-HR');
+}
+
+/**
+ * Vrijednost za <input type="date"> (YYYY-MM-DD) iz datuma koji server šalje
+ * kao UTC ISO — bez pretvorbe u lokalni datum dan zna "pobjeći" unatrag.
+ */
+export function toDateInput(d: string | null | undefined): string {
+  if (!d) return '';
+  const dt = new Date(d);
+  if (Number.isNaN(dt.getTime())) return '';
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+}
+
+/** Današnji datum u formatu za <input type="date">. */
+export function todayInput(): string {
+  return toDateInput(new Date().toISOString());
 }
 
 /** Koliko je dana ostalo do datuma isteka (negativno = isteklo). */
