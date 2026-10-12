@@ -218,6 +218,8 @@ CREATE TABLE IF NOT EXISTS job_work_logs (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_job_work_logs ON job_work_logs(job_id, kind, work_date DESC, id DESC);
+-- Ostatak ekipe uz voditelja (slobodan tekst — nemaju svi aplikaciju)
+ALTER TABLE job_work_logs ADD COLUMN IF NOT EXISTS crew TEXT NOT NULL DEFAULT '';
 
 -- Majstori koji su bili na tom zapisu (može ih biti više)
 CREATE TABLE IF NOT EXISTS job_work_log_workers (
@@ -229,6 +231,8 @@ CREATE TABLE IF NOT EXISTS job_work_log_workers (
 -- ============ ARHIVA BAUŠTELA ============
 -- Pri arhiviranju administrator upisuje majstore (može ih biti više) i datum.
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS archived_date DATE;
+-- Voditelj bauštele (bira admin): vodi ekipu i upisuje tijek rade
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS leader_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
 CREATE TABLE IF NOT EXISTS job_archive_workers (
   job_id  INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,

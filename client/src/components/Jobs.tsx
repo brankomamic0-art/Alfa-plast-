@@ -68,6 +68,7 @@ export default function Jobs({ me, users, refreshKey, onOpenJob }: {
                 {j.planned_date && <>Montaža: {fmtDate(j.planned_date)} · </>}
                 {j.creator_name}
               </div>
+              {j.leader_name && <div className="muted">👷 Voditelj: {j.leader_name}</div>}
             </div>
             <JobBadge status={j.status} />
           </div>
@@ -107,6 +108,7 @@ export default function Jobs({ me, users, refreshKey, onOpenJob }: {
 
       {showCreate && (
         <CreateJobModal
+          users={users}
           onClose={() => setShowCreate(false)}
           onCreated={(id) => { setShowCreate(false); load(); onOpenJob(id); }}
         />
@@ -183,8 +185,26 @@ function ArchiveModal({ job, users, onClose, onDone }: {
   );
 }
 
-function CreateJobModal({ onClose, onCreated }: { onClose: () => void; onCreated: (id: number) => void }) {
+/** Odabir voditelja bauštele: aktivni majstori i administratori (vozači ne vode ekipu). */
+export function LeaderSelect({ users, value, onChange }: {
+  users: User[]; value: string; onChange: (id: string) => void;
+}) {
+  const candidates = users.filter((u) => u.active !== false && u.role !== 'vozac');
+  return (
+    <select value={value} onChange={(e) => onChange(e.target.value)}>
+      <option value="">— nije odabran —</option>
+      {candidates.map((u) => (
+        <option key={u.id} value={u.id}>{u.full_name}</option>
+      ))}
+    </select>
+  );
+}
+
+function CreateJobModal({ users, onClose, onCreated }: {
+  users: User[]; onClose: () => void; onCreated: (id: number) => void;
+}) {
   const [name, setName] = useState('');
+  const [leaderId, setLeaderId] = useState('');
   const [address, setAddress] = useState('');
   const [note, setNote] = useState('');
   const [plannedDate, setPlannedDate] = useState('');
@@ -198,6 +218,7 @@ function CreateJobModal({ onClose, onCreated }: { onClose: () => void; onCreated
       const job = await api.post<Job>('/jobs', {
         name, address, note,
         planned_date: plannedDate || null,
+        leader_id: leaderId ? Number(leaderId) : null,
       });
       onCreated(job.id);
     } catch (e: any) {
@@ -216,6 +237,13 @@ function CreateJobModal({ onClose, onCreated }: { onClose: () => void; onCreated
       <div className="field">
         <label>Adresa / lokacija</label>
         <input value={address} onChange={(e) => setAddress(e.target.value)} />
+      </div>
+      <div className="field">
+        <label>Voditelj bauštele</label>
+        <LeaderSelect users={users} value={leaderId} onChange={setLeaderId} />
+        <div className="muted" style={{ marginTop: 4 }}>
+          Voditelj vodi ekipu i upisuje u aplikaciju što je odrađeno.
+        </div>
       </div>
       <div className="field">
         <label>Planirani datum montaže</label>

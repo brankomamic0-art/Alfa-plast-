@@ -5,6 +5,7 @@ import {
   JOB_STATUS_LABEL, WORK_LOG_LABEL, fmtDate, fmtDateTime, todayInput,
 } from '../types';
 import { Modal, ErrorBox, JobBadge } from './ui';
+import { LeaderSelect } from './Jobs';
 
 const EVENT_KIND_LABEL: Record<string, string> = {
   komentar: '💬 Komentar',
@@ -38,6 +39,14 @@ export default function JobDetail({ jobId, me, users, onBack, onChanged }: {
   async function setJobStatus(status: JobStatus) {
     try {
       await api.put(`/jobs/${jobId}/status`, { status });
+      load();
+      onChanged();
+    } catch (e: any) { setError(e.message); }
+  }
+
+  async function setLeader(id: string) {
+    try {
+      await api.put(`/jobs/${jobId}`, { leader_id: id ? Number(id) : null });
       load();
       onChanged();
     } catch (e: any) { setError(e.message); }
@@ -77,6 +86,7 @@ export default function JobDetail({ jobId, me, users, onBack, onChanged }: {
               {job.planned_date && <>Montaža: {fmtDate(job.planned_date)} · </>}
               Kreirao: {job.creator_name}
             </div>
+            {!isAdmin && job.leader_name && <div className="muted">👷 Voditelj: {job.leader_name}</div>}
           </div>
           <JobBadge status={job.status} />
         </div>
@@ -103,6 +113,12 @@ export default function JobDetail({ jobId, me, users, onBack, onChanged }: {
               ))}
             </select>
             <button className="btn btn-danger btn-sm" onClick={remove}>Obriši</button>
+          </div>
+        )}
+        {isAdmin && (
+          <div className="field" style={{ marginTop: 12, marginBottom: 0 }}>
+            <label>👷 Voditelj bauštele</label>
+            <LeaderSelect users={users} value={job.leader_id ? String(job.leader_id) : ''} onChange={setLeader} />
           </div>
         )}
       </div>
@@ -158,6 +174,8 @@ export default function JobDetail({ jobId, me, users, onBack, onChanged }: {
         <WorkLogModal
           jobId={jobId}
           kind={logKind}
+          me={me}
+          jobLeaderId={job.leader_id}
           users={users}
           onClose={() => setLogKind(null)}
           onDone={() => { setLogKind(null); load(); onChanged(); }}
@@ -226,8 +244,9 @@ function WorkSection({ kind, logs, job, me, canLog, onAdd, onChanged, onError }:
                 </div>
                 <div className="rl">
                   {l.workers.length > 0
-                    ? l.workers.map((w) => w.full_name).join(', ')
+                    ? <>👷 {l.workers.map((w) => w.full_name).join(', ')}</>
                     : `upisao ${l.created_by_name}`}
+                  {l.crew && <> · s njim: {l.crew}</>}
                 </div>
               </div>
               {isTodo && canLog && (
@@ -254,23 +273,26 @@ function WorkSection({ kind, logs, job, me, canLog, onAdd, onChanged, onError }:
   );
 }
 
-/** Unos u tijek rade: majstori, datum i komentar — sve je opcionalno. */
-function WorkLogModal({ jobId, kind, users, onClose, onDone }: {
-  jobId: number; kind: WorkLogKind; users: User[]; onClose: () => void; onDone: () => void;
+/**
+ * Unos u tijek rade: voditelj ekipe (jedan, iz aplikacije), ostatak ekipe
+ * slobodnim tekstom, datum i komentar — sve je opcionalno.
+ */
+function WorkLogModal({ jobId, kind, me, jobLeaderId, users, onClose, onDone }: {
+  jobId: number; kind: WorkLogKind; me: User; jobLeaderId: number | null; users: User[];
+  onClose: () => void; onDone: () => void;
 }) {
-  const [selected, setSelected] = useState<number[]>([]);
+  const candidates = users.filter((u) => u.active !== false && u.role !== 'vozac');
+  // Predodabran je voditelj bauštele; bez njega onaj tko upisuje
+  const initialLeader = [jobLeaderId, me.id].find((id) => candidates.some((u) => u.id === id));
+  const [leaderId, setLeaderId] = useState<number | ''>(initialLeader ?? '');
+  const [crew, setCrew] = useState('');
   const [date, setDate] = useState(kind === 'odradeno' ? todayInput() : '');
   const [body, setBody] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const candidates = users.filter((u) => u.active !== false && u.role !== 'vozac');
-
-  function toggle(id: number) {
-    setSelected(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id]);
-  }
 
   async function submit() {
-    if (!body.trim() && selected.length === 0 && !date) {
+    if (!body.trim() && leaderId === '' && !date) {
       setError('Upišite barem komentar, majstora ili datum.');
       return;
     }
@@ -281,7 +303,8 @@ function WorkLogModal({ jobId, kind, users, onClose, onDone }: {
         kind,
         work_date: date || null,
         body,
-        worker_ids: selected,
+        worker_ids: leaderId === '' ? [] : [leaderId],
+        crew: leaderId === '' ? '' : crew,
       });
       onDone();
     } catch (e: any) {
@@ -295,15 +318,22 @@ function WorkLogModal({ jobId, kind, users, onClose, onDone }: {
       <ErrorBox msg={error} />
 
       <div className="field">
-        <label>Koji majstori su bili (opcionalno) {selected.length > 0 && `(${selected.length})`}</label>
-        {candidates.map((u) => (
-          <label key={u.id} className="checkline">
-            <input type="checkbox" checked={selected.includes(u.id)} onChange={() => toggle(u.id)} />
-            {u.full_name} <span className="chip">{u.role}</span>
-          </label>
-        ))}
+        <label>Voditelj ekipe (opcionalno)</label>
+        <select value={leaderId} onChange={(e) => setLeaderId(e.target.value ? Number(e.target.value) : '')}>
+          <option value="">— nije odabran —</option>
+          {candidates.map((u) => (
+            <option key={u.id} value={u.id}>{u.full_name}</option>
+          ))}
+        </select>
         {candidates.length === 0 && <div className="muted">Nema majstora u sustavu.</div>}
       </div>
+
+      {leaderId !== '' && (
+        <div className="field">
+          <label>Tko je još bio s njim (opcionalno)</label>
+          <input value={crew} onChange={(e) => setCrew(e.target.value)} placeholder="npr. Marko, Ante, Ivan" />
+        </div>
+      )}
 
       <div className="field">
         <label>Datum (opcionalno)</label>

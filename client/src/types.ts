@@ -233,7 +233,10 @@ export interface JobWorkLog {
   created_by: number;
   created_by_name: string;
   created_at: string;
+  /** Voditelj ekipe (stariji zapisi mogu imati više majstora) */
   workers: JobWorker[];
+  /** Ostatak ekipe uz voditelja, slobodan tekst */
+  crew: string;
 }
 
 export interface Job {
@@ -246,6 +249,9 @@ export interface Job {
   planned_date: string | null;
   created_by: number;
   creator_name?: string;
+  /** Voditelj bauštele (bira admin) — vodi ekipu i upisuje tijek rade */
+  leader_id: number | null;
+  leader_name?: string | null;
   archived: boolean;
   /** Datum koji administrator upiše pri arhiviranju */
   archived_date: string | null;
