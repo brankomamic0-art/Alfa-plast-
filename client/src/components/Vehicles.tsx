@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import {
-  Vehicle, VehicleDetail, VehicleFault, VehicleServiceRecord, ServiceType, User,
-  SERVICE_LABEL, fmtDate, fmtDateTime, daysUntil,
+  Vehicle, VehicleDetail, VehicleFault, VehicleServiceRecord, VehicleCheck, User,
+  CHECK_SUGGESTIONS, fmtDate, fmtDateTime, daysUntil,
 } from '../types';
 import { Modal, ErrorBox, VehicleBadge } from './ui';
 
@@ -49,9 +49,10 @@ export default function Vehicles({ me, vehicles, onChanged }: { me: User; vehicl
             {v.next_oil_odometer != null && (
               <span className="chip">➜ Iduća izmjena: {km(v.next_oil_odometer)}</span>
             )}
-            {/* Registracija i tehnički su privatni — server ih šalje samo administratoru */}
-            {isAdmin && <ExpiryChip label="📄 Registracija" date={v.registration_until} />}
-            {isAdmin && <ExpiryChip label="🔧 Tehnički" date={v.inspection_until} />}
+            {/* Stavke s rokom su privatne — server ih šalje samo administratoru */}
+            {isAdmin && v.checks?.map((c) => (
+              <ExpiryChip key={c.id} label={`📄 ${c.name}`} date={c.valid_until} />
+            ))}
           </div>
         </div>
       ))}
@@ -102,7 +103,9 @@ function VehicleDetailModal({ me, vehicleId, onClose, onChanged, onDeleted }: {
   const [error, setError] = useState('');
   const [showFault, setShowFault] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
-  const [addType, setAddType] = useState<ServiceType | null>(null);
+  /** Novi zapis: izmjena ulja ili zapis za određenu stavku s rokom */
+  const [adding, setAdding] = useState<'ulje' | VehicleCheck | null>(null);
+  const [showAddCheck, setShowAddCheck] = useState(false);
   const [resolving, setResolving] = useState<VehicleFault | null>(null);
   const isAdmin = me.role === 'admin';
 
@@ -130,9 +133,18 @@ function VehicleDetailModal({ me, vehicleId, onClose, onChanged, onDeleted }: {
   }
 
   async function deleteRecord(r: VehicleServiceRecord) {
-    if (!confirm(`Obrisati zapis: ${SERVICE_LABEL[r.type]} — ${fmtDate(r.done_date)}?`)) return;
+    const label = r.type === 'ulje' ? 'Izmjena ulja' : v?.checks?.find((c) => c.id === r.check_id)?.name;
+    if (!confirm(`Obrisati zapis: ${label} — ${fmtDate(r.done_date)}?`)) return;
     try {
       await api.del(`/vehicles/${vehicleId}/service/${r.id}`);
+      await refresh();
+    } catch (e: any) { setError(e.message); }
+  }
+
+  async function removeCheck(c: VehicleCheck) {
+    if (!confirm(`Ukloniti stavku "${c.name}" s ovog vozila? Briše se i sva njezina povijest.`)) return;
+    try {
+      await api.del(`/vehicles/${vehicleId}/checks/${c.id}`);
       await refresh();
     } catch (e: any) { setError(e.message); }
   }
@@ -158,8 +170,7 @@ function VehicleDetailModal({ me, vehicleId, onClose, onChanged, onDeleted }: {
   const open = v.faults.filter((f) => !f.resolved);
   const resolved = v.faults.filter((f) => f.resolved);
   const oil = v.service.filter((r) => r.type === 'ulje');
-  const registration = v.service.filter((r) => r.type === 'registracija');
-  const inspection = v.service.filter((r) => r.type === 'tehnicki');
+  const checks = v.checks ?? [];
 
   return (
     <Modal title={v.registration} onClose={onClose}>
@@ -221,32 +232,33 @@ function VehicleDetailModal({ me, vehicleId, onClose, onChanged, onDeleted }: {
 
       {/* ---------- Izmjena ulja: vide svi ---------- */}
       <ServiceSection
-        type="ulje"
+        title="Izmjena ulja"
         records={oil}
         isAdmin={isAdmin}
-        onAdd={() => setAddType('ulje')}
+        onAdd={() => setAdding('ulje')}
         onDelete={deleteRecord}
       />
 
-      {/* ---------- Privatno: samo administrator ---------- */}
+      {/* ---------- Privatno: stavke s rokom, samo administrator ---------- */}
       {isAdmin && (
         <>
-          <ServiceSection
-            type="registracija"
-            records={registration}
-            isAdmin
-            privateNote
-            onAdd={() => setAddType('registracija')}
-            onDelete={deleteRecord}
-          />
-          <ServiceSection
-            type="tehnicki"
-            records={inspection}
-            isAdmin
-            privateNote
-            onAdd={() => setAddType('tehnicki')}
-            onDelete={deleteRecord}
-          />
+          {checks.map((c) => (
+            <ServiceSection
+              key={c.id}
+              title={c.name}
+              records={v.service.filter((r) => r.check_id === c.id)}
+              isAdmin
+              privateNote
+              onAdd={() => setAdding(c)}
+              onDelete={deleteRecord}
+              onRemove={() => removeCheck(c)}
+            />
+          ))}
+          <div className="btn-row" style={{ marginTop: 16 }}>
+            <button className="btn btn-ghost btn-block" onClick={() => setShowAddCheck(true)}>
+              + Dodaj stavku (npr. tahograf, periodični tehnički)
+            </button>
+          </div>
         </>
       )}
 
@@ -264,12 +276,20 @@ function VehicleDetailModal({ me, vehicleId, onClose, onChanged, onDeleted }: {
           onDone={() => { setShowEdit(false); refresh(); }}
         />
       )}
-      {addType && (
+      {adding && (
         <ServiceModal
           vehicleId={vehicleId}
-          type={addType}
-          onClose={() => setAddType(null)}
-          onDone={() => { setAddType(null); refresh(); }}
+          check={adding === 'ulje' ? null : adding}
+          onClose={() => setAdding(null)}
+          onDone={() => { setAdding(null); refresh(); }}
+        />
+      )}
+      {showAddCheck && (
+        <AddCheckModal
+          vehicleId={vehicleId}
+          existing={checks}
+          onClose={() => setShowAddCheck(false)}
+          onDone={() => { setShowAddCheck(false); refresh(); }}
         />
       )}
       {resolving && (
@@ -284,13 +304,15 @@ function VehicleDetailModal({ me, vehicleId, onClose, onChanged, onDeleted }: {
   );
 }
 
-function ServiceSection({ type, records, isAdmin, privateNote, onAdd, onDelete }: {
-  type: ServiceType;
+function ServiceSection({ title, records, isAdmin, privateNote, onAdd, onDelete, onRemove }: {
+  title: string;
   records: VehicleServiceRecord[];
   isAdmin: boolean;
   privateNote?: boolean;
   onAdd: () => void;
   onDelete: (r: VehicleServiceRecord) => void;
+  /** Ukloni cijelu stavku s vozila (samo stavke s rokom) */
+  onRemove?: () => void;
 }) {
   const [showAll, setShowAll] = useState(false);
   const shown = showAll ? records : records.slice(0, 3);
@@ -298,7 +320,7 @@ function ServiceSection({ type, records, isAdmin, privateNote, onAdd, onDelete }
   return (
     <>
       <div className="section-title">
-        {SERVICE_LABEL[type]}
+        {title}
         {privateNote && <span className="chip">🔒 samo admin</span>}
       </div>
 
@@ -332,13 +354,17 @@ function ServiceSection({ type, records, isAdmin, privateNote, onAdd, onDelete }
             {showAll ? 'Prikaži manje' : `Cijela povijest (${records.length})`}
           </button>
         )}
+        {isAdmin && onRemove && (
+          <button className="btn btn-sm btn-ghost" onClick={onRemove}>Ukloni stavku</button>
+        )}
       </div>
     </>
   );
 }
 
-function ServiceModal({ vehicleId, type, onClose, onDone }: {
-  vehicleId: number; type: ServiceType; onClose: () => void; onDone: () => void;
+/** check = null → izmjena ulja; inače zapis za tu stavku s rokom. */
+function ServiceModal({ vehicleId, check, onClose, onDone }: {
+  vehicleId: number; check: VehicleCheck | null; onClose: () => void; onDone: () => void;
 }) {
   const today = new Date().toISOString().slice(0, 10);
   const [doneDate, setDoneDate] = useState(today);
@@ -348,7 +374,7 @@ function ServiceModal({ vehicleId, type, onClose, onDone }: {
   const [note, setNote] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const isOil = type === 'ulje';
+  const isOil = check === null;
 
   async function submit() {
     if (!doneDate) { setError('Datum je obavezan.'); return; }
@@ -360,7 +386,8 @@ function ServiceModal({ vehicleId, type, onClose, onDone }: {
     setError('');
     try {
       await api.post(`/vehicles/${vehicleId}/service`, {
-        type,
+        type: isOil ? 'ulje' : 'provjera',
+        check_id: check?.id ?? null,
         done_date: doneDate,
         valid_until: isOil ? null : validUntil || null,
         odometer: odometer === '' ? null : Number(odometer),
@@ -375,7 +402,7 @@ function ServiceModal({ vehicleId, type, onClose, onDone }: {
   }
 
   return (
-    <Modal title={SERVICE_LABEL[type]} onClose={onClose}>
+    <Modal title={check ? check.name : 'Izmjena ulja'} onClose={onClose}>
       <ErrorBox msg={error} />
       <div className="field">
         <label>{isOil ? 'Datum izmjene' : 'Datum obavljanja'}</label>
@@ -414,7 +441,7 @@ function ServiceModal({ vehicleId, type, onClose, onDone }: {
         <label>Napomena (opcionalno)</label>
         <textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder={isOil ? 'npr. zamijenjen i filter' : ''} />
       </div>
-      {type !== 'ulje' && (
+      {!isOil && (
         <p className="muted" style={{ marginTop: 0 }}>Ovaj zapis vidi samo administrator.</p>
       )}
       <button className="btn btn-primary btn-block" onClick={submit} disabled={busy}>
@@ -432,9 +459,15 @@ function VehicleModal({ vehicle, onClose, onDone }: { vehicle?: Vehicle; onClose
   const [name, setName] = useState(vehicle?.name || '');
   const [note, setNote] = useState(vehicle?.note || '');
   const [active, setActive] = useState(vehicle?.active !== false);
+  /** Stavke s rokom za novo vozilo; kasnije se mijenjaju u detaljima vozila */
+  const [checks, setChecks] = useState<string[]>(['Registracija', 'Tehnički pregled']);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const isEdit = !!vehicle;
+
+  function toggleCheck(name: string) {
+    setChecks((cur) => (cur.includes(name) ? cur.filter((c) => c !== name) : [...cur, name]));
+  }
 
   async function submit() {
     if (!registration.trim()) { setError('Registracija je obavezna.'); return; }
@@ -444,7 +477,7 @@ function VehicleModal({ vehicle, onClose, onDone }: { vehicle?: Vehicle; onClose
       if (isEdit) {
         await api.put(`/vehicles/${vehicle!.id}`, { registration, name, note, active });
       } else {
-        await api.post('/vehicles', { registration, name });
+        await api.post('/vehicles', { registration, name, checks });
       }
       onDone();
     } catch (e: any) {
@@ -464,6 +497,18 @@ function VehicleModal({ vehicle, onClose, onDone }: { vehicle?: Vehicle; onClose
         <label>Naziv / model (opcionalno)</label>
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="npr. Iveco Daily" />
       </div>
+      {!isEdit && (
+        <div className="field">
+          <label>Što se prati na ovom vozilu</label>
+          {CHECK_SUGGESTIONS.map((s) => (
+            <label key={s} className="checkline">
+              <input type="checkbox" checked={checks.includes(s)} onChange={() => toggleCheck(s)} />
+              {s}
+            </label>
+          ))}
+          <div className="muted" style={{ marginTop: 4 }}>Stavke se mogu dodati ili ukloniti i kasnije, u detaljima vozila.</div>
+        </div>
+      )}
       {isEdit && (
         <>
           <div className="field">
@@ -481,6 +526,54 @@ function VehicleModal({ vehicle, onClose, onDone }: { vehicle?: Vehicle; onClose
       )}
       <button className="btn btn-primary btn-block" onClick={submit} disabled={busy}>
         {busy ? 'Spremanje…' : isEdit ? 'Spremi promjene' : 'Dodaj vozilo'}
+      </button>
+    </Modal>
+  );
+}
+
+/** Dodavanje stavke s rokom (npr. baždarenje tahografa) na vozilo. */
+function AddCheckModal({ vehicleId, existing, onClose, onDone }: {
+  vehicleId: number; existing: VehicleCheck[]; onClose: () => void; onDone: () => void;
+}) {
+  const [name, setName] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const taken = new Set(existing.map((c) => c.name.toLowerCase()));
+  const suggestions = CHECK_SUGGESTIONS.filter((s) => !taken.has(s.toLowerCase()));
+
+  async function add(value: string) {
+    if (!value.trim()) { setError('Upišite naziv stavke.'); return; }
+    setBusy(true);
+    setError('');
+    try {
+      await api.post(`/vehicles/${vehicleId}/checks`, { name: value.trim() });
+      onDone();
+    } catch (e: any) {
+      setError(e.message);
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal title="Dodaj stavku" onClose={onClose}>
+      <ErrorBox msg={error} />
+      {suggestions.length > 0 && (
+        <div className="field">
+          <label>Brzi odabir</label>
+          <div className="row">
+            {suggestions.map((s) => (
+              <button key={s} className="btn btn-sm btn-ghost" onClick={() => add(s)} disabled={busy}>+ {s}</button>
+            ))}
+          </div>
+        </div>
+      )}
+      <div className="field">
+        <label>Ili upišite svoju</label>
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="npr. Atest dizalice" />
+      </div>
+      <p className="muted" style={{ marginTop: 0 }}>Za svaku stavku upisujete datum i do kad vrijedi. Vidi samo administrator.</p>
+      <button className="btn btn-primary btn-block" onClick={() => add(name)} disabled={busy}>
+        {busy ? 'Spremanje…' : 'Dodaj stavku'}
       </button>
     </Modal>
   );

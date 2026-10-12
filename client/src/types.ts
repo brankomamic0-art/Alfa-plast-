@@ -55,10 +55,27 @@ export interface Vehicle {
   last_oil_date?: string | null;
   last_oil_odometer?: number | null;
   next_oil_odometer?: number | null;
-  /** Samo administrator */
-  registration_until?: string | null;
-  inspection_until?: string | null;
+  /** Stavke s rokom (registracija, tehnički, tahograf...) — samo administrator */
+  checks?: VehicleCheck[];
 }
+
+/** Stavka s rokom važenja, po vozilu; admin ih dodaje/uklanja. */
+export interface VehicleCheck {
+  id: number;
+  name: string;
+  /** "Vrijedi do" iz zadnjeg zapisa */
+  valid_until: string | null;
+}
+
+/** Prijedlozi pri dodavanju stavke vozilu. */
+export const CHECK_SUGGESTIONS = [
+  'Registracija',
+  'Tehnički pregled',
+  'Periodični tehnički pregled',
+  'Baždarenje tahografa',
+  'Vatrogasni aparat',
+  'Prva pomoć',
+];
 
 export const VEHICLE_STATUS_LABEL: Record<VehicleStatus, string> = {
   ispravno: 'Ispravno',
@@ -77,18 +94,14 @@ export interface VehicleFault {
   resolver_name: string | null;
 }
 
-export type ServiceType = 'ulje' | 'registracija' | 'tehnicki';
-
-export const SERVICE_LABEL: Record<ServiceType, string> = {
-  ulje: 'Izmjena ulja',
-  registracija: 'Registracija',
-  tehnicki: 'Tehnički pregled',
-};
+/** 'ulje' je javno; 'provjera' je zapis stavke s rokom (check_id), samo admin. */
+export type ServiceType = 'ulje' | 'provjera';
 
 export interface VehicleServiceRecord {
   id: number;
   vehicle_id: number;
   type: ServiceType;
+  check_id: number | null;
   done_date: string;
   valid_until: string | null;
   odometer: number | null;

@@ -41,13 +41,13 @@ CREATE TABLE IF NOT EXISTS vehicle_faults (
 CREATE INDEX IF NOT EXISTS idx_vehicle_faults ON vehicle_faults(vehicle_id, resolved, created_at DESC);
 
 -- Servisna povijest vozila. Unosi isključivo administrator.
--- Zapisi tipa 'ulje' vidljivi su svima; 'registracija' i 'tehnicki' samo administratoru.
+-- Zapisi tipa 'ulje' vidljivi su svima; 'provjera' (stavke vozila, vidi niže) samo administratoru.
 CREATE TABLE IF NOT EXISTS vehicle_service_records (
   id          SERIAL PRIMARY KEY,
   vehicle_id  INTEGER NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
-  type        TEXT NOT NULL CHECK (type IN ('ulje','registracija','tehnicki')),
+  type        TEXT NOT NULL CHECK (type IN ('ulje','provjera')),
   done_date   DATE NOT NULL,          -- kad je obavljeno
-  valid_until DATE,                   -- vrijedi do (registracija / tehnički)
+  valid_until DATE,                   -- vrijedi do (stavke s rokom: registracija, tehnički...)
   odometer    INTEGER,                -- stanje km (izmjena ulja)
   next_odometer INTEGER,              -- na kojoj kilometraži je iduća izmjena ulja
   note        TEXT DEFAULT '',
@@ -56,6 +56,37 @@ CREATE TABLE IF NOT EXISTS vehicle_service_records (
 );
 ALTER TABLE vehicle_service_records ADD COLUMN IF NOT EXISTS next_odometer INTEGER;
 CREATE INDEX IF NOT EXISTS idx_vehicle_service ON vehicle_service_records(vehicle_id, type, done_date DESC);
+
+-- Stavke s rokom važenja po vozilu (registracija, tehnički, periodični tehnički,
+-- baždarenje tahografa...). Admin ih slobodno dodaje/uklanja za svako vozilo.
+-- Zapisi takvih stavki imaju type = 'provjera' i check_id; vidi ih samo administrator.
+CREATE TABLE IF NOT EXISTS vehicle_checks (
+  id          SERIAL PRIMARY KEY,
+  vehicle_id  INTEGER NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
+  name        TEXT NOT NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_vehicle_checks ON vehicle_checks(vehicle_id, lower(name));
+ALTER TABLE vehicle_service_records ADD COLUMN IF NOT EXISTS check_id INTEGER REFERENCES vehicle_checks(id) ON DELETE CASCADE;
+CREATE INDEX IF NOT EXISTS idx_vehicle_service_check ON vehicle_service_records(check_id, done_date DESC);
+ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS checks_initialized BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- Jednokratni prijenos: dosadašnje fiksne stavke postaju stavke vozila
+ALTER TABLE vehicle_service_records DROP CONSTRAINT IF EXISTS vehicle_service_records_type_check;
+INSERT INTO vehicle_checks (vehicle_id, name)
+SELECT v.id, d.name
+FROM vehicles v CROSS JOIN (VALUES ('Registracija'), ('Tehnički pregled')) AS d(name)
+WHERE NOT v.checks_initialized
+ON CONFLICT DO NOTHING;
+UPDATE vehicle_service_records r
+SET check_id = c.id, type = 'provjera'
+FROM vehicle_checks c
+WHERE r.type IN ('registracija', 'tehnicki')
+  AND c.vehicle_id = r.vehicle_id
+  AND c.name = CASE r.type WHEN 'registracija' THEN 'Registracija' ELSE 'Tehnički pregled' END;
+UPDATE vehicles SET checks_initialized = TRUE WHERE NOT checks_initialized;
+ALTER TABLE vehicle_service_records ADD CONSTRAINT vehicle_service_records_type_check
+  CHECK (type IN ('ulje', 'provjera'));
 
 -- Prijenos zatečenih kvarova (status 'u_kvaru' + napomena) u tablicu kvarova
 INSERT INTO vehicle_faults (vehicle_id, reported_by, description, created_at)

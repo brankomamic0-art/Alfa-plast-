@@ -6,13 +6,23 @@ import { notify, userIds } from '../notify.js';
 const router = Router();
 router.use(requireAuth);
 
-const SERVICE_LABEL = {
-  ulje: 'Izmjena ulja',
-  registracija: 'Registracija',
-  tehnicki: 'Periodični tehnički pregled',
-};
-// Samo izmjena ulja je javna; registracija i tehnički su privatni (admin).
+// Izmjena ulja je javna; zapisi stavki vozila ('provjera') su privatni (admin).
 const PUBLIC_SERVICE = ['ulje'];
+/** Stavke koje novo vozilo dobiva ako admin ne odabere drugačije. */
+const DEFAULT_CHECKS = ['Registracija', 'Tehnički pregled'];
+
+/** Stavke vozila s rokom važenja (iz zadnjeg zapisa) — kao JSON polje. */
+const CHECKS_SQL = `COALESCE((
+  SELECT json_agg(json_build_object('id', c.id, 'name', c.name, 'valid_until', last.valid_until)
+                  ORDER BY c.id)
+    FROM vehicle_checks c
+    LEFT JOIN LATERAL (
+      SELECT r.valid_until FROM vehicle_service_records r
+       WHERE r.check_id = c.id
+       ORDER BY r.done_date DESC, r.id DESC LIMIT 1
+    ) last ON TRUE
+   WHERE c.vehicle_id = v.id
+), '[]'::json)`;
 
 /** Status vozila je izveden: 'u_kvaru' dok postoji ijedan neriješen kvar. */
 async function syncStatus(vehicleId) {
@@ -35,11 +45,24 @@ function toKm(value) {
   return km;
 }
 
-/** Datumi registracije/tehničkog vidljivi su samo administratoru. */
+/** Stavke s rokom (registracija, tehnički...) vidljive su samo administratoru. */
 function stripPrivate(vehicle, isAdmin) {
   if (isAdmin) return vehicle;
-  const { registration_until, inspection_until, ...rest } = vehicle;
+  const { checks, ...rest } = vehicle;
   return rest;
+}
+
+/** Očisti popis naziva stavki: bez praznih i duplikata (neovisno o velikim slovima). */
+function cleanCheckNames(names) {
+  const seen = new Set();
+  const out = [];
+  for (const raw of Array.isArray(names) ? names : []) {
+    const name = String(raw ?? '').trim();
+    if (!name || seen.has(name.toLowerCase())) continue;
+    seen.add(name.toLowerCase());
+    out.push(name);
+  }
+  return out;
 }
 
 // ---- Lista vozila (svi prijavljeni) ----
@@ -51,24 +74,13 @@ router.get('/vehicles', async (req, res) => {
             oil.done_date     AS last_oil_date,
             oil.odometer      AS last_oil_odometer,
             oil.next_odometer AS next_oil_odometer,
-            reg.valid_until AS registration_until,
-            teh.valid_until AS inspection_until
+            ${CHECKS_SQL} AS checks
        FROM vehicles v
        LEFT JOIN LATERAL (
          SELECT r.done_date, r.odometer, r.next_odometer FROM vehicle_service_records r
           WHERE r.vehicle_id = v.id AND r.type = 'ulje'
           ORDER BY r.done_date DESC, r.id DESC LIMIT 1
        ) oil ON TRUE
-       LEFT JOIN LATERAL (
-         SELECT r.valid_until FROM vehicle_service_records r
-          WHERE r.vehicle_id = v.id AND r.type = 'registracija'
-          ORDER BY r.done_date DESC, r.id DESC LIMIT 1
-       ) reg ON TRUE
-       LEFT JOIN LATERAL (
-         SELECT r.valid_until FROM vehicle_service_records r
-          WHERE r.vehicle_id = v.id AND r.type = 'tehnicki'
-          ORDER BY r.done_date DESC, r.id DESC LIMIT 1
-       ) teh ON TRUE
       ORDER BY v.active DESC, v.registration`
   );
   const isAdmin = req.user.role === 'admin';
@@ -80,20 +92,8 @@ router.get('/vehicles/:id', async (req, res) => {
   const id = Number(req.params.id);
   const isAdmin = req.user.role === 'admin';
   const vehicle = await one(
-    `SELECT v.*,
-            reg.valid_until AS registration_until,
-            teh.valid_until AS inspection_until
+    `SELECT v.*, ${CHECKS_SQL} AS checks
        FROM vehicles v
-       LEFT JOIN LATERAL (
-         SELECT r.valid_until FROM vehicle_service_records r
-          WHERE r.vehicle_id = v.id AND r.type = 'registracija'
-          ORDER BY r.done_date DESC, r.id DESC LIMIT 1
-       ) reg ON TRUE
-       LEFT JOIN LATERAL (
-         SELECT r.valid_until FROM vehicle_service_records r
-          WHERE r.vehicle_id = v.id AND r.type = 'tehnicki'
-          ORDER BY r.done_date DESC, r.id DESC LIMIT 1
-       ) teh ON TRUE
       WHERE v.id = $1`,
     [id]
   );
@@ -124,14 +124,17 @@ router.get('/vehicles/:id', async (req, res) => {
 
 // ---- Novo vozilo (admin) ----
 router.post('/vehicles', requireAdmin, async (req, res) => {
-  const { registration, name = '' } = req.body || {};
+  const { registration, name = '', checks = DEFAULT_CHECKS } = req.body || {};
   if (!registration?.trim()) return res.status(400).json({ error: 'Registracija je obavezna.' });
   const exists = await one('SELECT id FROM vehicles WHERE lower(registration) = lower($1)', [registration.trim()]);
   if (exists) return res.status(409).json({ error: 'Vozilo s tom registracijom već postoji.' });
   const vehicle = await one(
-    `INSERT INTO vehicles (registration, name) VALUES ($1,$2) RETURNING *`,
+    `INSERT INTO vehicles (registration, name, checks_initialized) VALUES ($1,$2,TRUE) RETURNING *`,
     [registration.trim(), name.trim()]
   );
+  for (const checkName of cleanCheckNames(checks)) {
+    await q('INSERT INTO vehicle_checks (vehicle_id, name) VALUES ($1,$2)', [vehicle.id, checkName]);
+  }
   res.status(201).json(vehicle);
 });
 
@@ -232,15 +235,47 @@ router.delete('/vehicles/:id/faults/:faultId', requireAdmin, async (req, res) =>
 });
 
 // =====================================================
+// STAVKE S ROKOM (registracija, tehnički, tahograf...) — po vozilu, samo admin
+// =====================================================
+router.post('/vehicles/:id/checks', requireAdmin, async (req, res) => {
+  const id = Number(req.params.id);
+  const name = String(req.body?.name ?? '').trim();
+  if (!name) return res.status(400).json({ error: 'Naziv stavke je obavezan.' });
+  const vehicle = await one('SELECT id FROM vehicles WHERE id = $1', [id]);
+  if (!vehicle) return res.status(404).json({ error: 'Vozilo ne postoji.' });
+  const exists = await one('SELECT id FROM vehicle_checks WHERE vehicle_id = $1 AND lower(name) = lower($2)', [id, name]);
+  if (exists) return res.status(409).json({ error: 'Vozilo već ima tu stavku.' });
+  const check = await one('INSERT INTO vehicle_checks (vehicle_id, name) VALUES ($1,$2) RETURNING *', [id, name]);
+  await q('UPDATE vehicles SET updated_at = now() WHERE id = $1', [id]);
+  res.status(201).json(check);
+});
+
+// Uklanjanjem stavke brišu se i svi njezini zapisi (ON DELETE CASCADE)
+router.delete('/vehicles/:id/checks/:checkId', requireAdmin, async (req, res) => {
+  const id = Number(req.params.id);
+  await q('DELETE FROM vehicle_checks WHERE id = $1 AND vehicle_id = $2', [Number(req.params.checkId), id]);
+  await q('UPDATE vehicles SET updated_at = now() WHERE id = $1', [id]);
+  res.json({ ok: true });
+});
+
+// =====================================================
 // SERVISNA POVIJEST — unosi i briše samo administrator
 // =====================================================
 router.post('/vehicles/:id/service', requireAdmin, async (req, res) => {
   const id = Number(req.params.id);
-  const { type, done_date, valid_until = null, odometer = null, next_odometer = null, note = '' } = req.body || {};
-  if (!SERVICE_LABEL[type]) return res.status(400).json({ error: 'Nepoznata vrsta zapisa.' });
+  const {
+    type, check_id = null, done_date, valid_until = null, odometer = null, next_odometer = null, note = '',
+  } = req.body || {};
+  if (type !== 'ulje' && type !== 'provjera') return res.status(400).json({ error: 'Nepoznata vrsta zapisa.' });
   if (!done_date) return res.status(400).json({ error: 'Datum je obavezan.' });
   const vehicle = await one('SELECT id FROM vehicles WHERE id = $1', [id]);
   if (!vehicle) return res.status(404).json({ error: 'Vozilo ne postoji.' });
+  let checkId = null;
+  if (type === 'provjera') {
+    const check = await one('SELECT id FROM vehicle_checks WHERE id = $1 AND vehicle_id = $2', [Number(check_id), id]);
+    if (!check) return res.status(400).json({ error: 'Stavka ne postoji na ovom vozilu.' });
+    checkId = check.id;
+  }
 
   const km = toKm(odometer);
   if (km === false) return res.status(400).json({ error: 'Kilometraža mora biti broj.' });
@@ -252,9 +287,10 @@ router.post('/vehicles/:id/service', requireAdmin, async (req, res) => {
   }
 
   const record = await one(
-    `INSERT INTO vehicle_service_records (vehicle_id, type, done_date, valid_until, odometer, next_odometer, note, created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-    [id, type, done_date, valid_until || null, km, nextKm, note.trim(), req.user.id]
+    `INSERT INTO vehicle_service_records
+       (vehicle_id, type, check_id, done_date, valid_until, odometer, next_odometer, note, created_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+    [id, type, checkId, done_date, type === 'ulje' ? null : valid_until || null, km, nextKm, note.trim(), req.user.id]
   );
   await q('UPDATE vehicles SET updated_at = now() WHERE id = $1', [id]);
   res.status(201).json(record);
